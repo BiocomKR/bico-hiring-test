@@ -70,6 +70,10 @@ button.link { border: 0; background: none; color: var(--acc); padding: 0 0 0 10p
 .print-memo, .print-only { display: none; white-space: pre-wrap; }
 .print-only { margin-left: 6px; }
 .warn-box { color: var(--warn); }
+.combo.critical { border-color: var(--danger); }
+.tag { font-size: 12px; color: var(--danger); border: 1px solid var(--danger); border-radius: 6px; padding: 0 6px; }
+.combo p { margin: 6px 0; }
+.combo.off { opacity: 0.55; }
 
 @media (max-width: 900px) {
   .split { grid-template-columns: 1fr; height: auto; }

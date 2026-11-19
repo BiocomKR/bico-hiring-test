@@ -5,12 +5,13 @@
   const DUR = E.durationMin * 60 * 1000;
   const $ = (sel) => document.querySelector(sel);
   let state = load();
+  state.comboOff = state.comboOff || {};
   let grading = null;
   let tab = "exam";
 
   function fresh() {
     return { phase: "intro", name: "", answers: {}, edits: {}, revealed: 1, editing: null,
-      away: { count: 0, ms: 0, since: null }, overrides: {}, fmemo: {}, memo: "" };
+      away: { count: 0, ms: 0, since: null }, overrides: {}, comboOff: {}, fmemo: {}, memo: "" };
   }
   function load() {
     try {
@@ -240,6 +241,18 @@
       <details><summary>모범 답과 채점 기준</summary><p>${esc(g.model)}</p>${g.why ? "<p>" + esc(g.why) + "</p>" : ""}</details>
     </div>`;
   }
+  function combosHtml(sc) {
+    if (!sc.combos.length) return "";
+    const title = (qid) => (qById(qid) || {}).title || qid;
+    const cards = sc.combos.map((c) => `<div class="combo card ${c.critical ? "critical" : ""} ${c.applied ? "" : "off"}">
+      <div class="qhead"><b>${esc(c.title)}</b>${c.critical ? '<span class="tag">위험 조합</span>' : ""}
+        <span class="score"><label class="no-print"><input type="checkbox" data-combo="${c.id}" ${c.applied ? "checked" : ""}> 감점 적용</label>
+        <b>−${c.penalty}점</b><span class="print-only">${c.applied ? "적용" : "면접관이 적용 안 함"}</span></span></div>
+      <p class="muted">관련 답: ${c.qs.map((q) => esc(q.replace("q", "") + "번 " + title(q))).join(", ")}</p>
+      <p><b>파급효과</b> ${esc(c.ripple)}</p></div>`).join("");
+    const cap = grading.comboCap ? ` (감점은 최대 ${grading.comboCap}점)` : "";
+    return `<h3>답 조합 감점${cap}</h3><p class="muted">문항 하나씩은 그럴듯해도 함께 고르면 나중에 문제가 커지는 조합입니다. 위험 조합이 하나라도 적용되면 점수와 관계없이 추천하지 않습니다.</p>${cards}`;
+  }
   function followHtml(f) {
     const memo = state.fmemo[f.id] || "";
     return `<div class="follow card"><p class="muted">${esc(f.source)}</p><p class="fq">${esc(f.q)}</p>
@@ -258,14 +271,17 @@
     if (!grading) return lockHtml();
     if (grading.version !== E.version) return `<div class="card warn-box">채점 파일(${esc(grading.version)})과 문제(${esc(E.version)})의 판이 다릅니다.</div>`;
     if (state.phase === "intro") return '<div class="card">아직 시작한 시험이 없습니다.</div>';
-    const sc = Scoring.scoreAll(grading, state.answers, state.overrides);
+    const sc = Scoring.scoreAll(grading, state.answers, state.overrides, state.comboOff);
     const fus = Scoring.selectFollowups(grading, sc, state.answers, 4);
     const dims = sc.dims.map((d) => `<tr><td>${esc(d.name)}</td><td>${d.got} / ${d.max}</td></tr>`).join("");
     return `<div class="results">
       <div class="toolbar no-print"><button class="primary" data-act="pdf">PDF로 저장</button><button data-act="json">JSON 내보내기</button><button class="danger" data-act="reset">다음 지원자 준비(초기화)</button></div>
       <h2>평가 결과: ${esc(state.name)} (${fmt(state.startedAt)})</h2>
       ${metaHtml()}
-      <div class="verdict card"><div class="big">${sc.total} / ${sc.max}점, ${sc.verdict}</div><p class="muted">${esc(grading.verdict.note)}</p></div>
+      <div class="verdict card"><div class="big">${sc.total} / ${sc.max}점, ${sc.verdict}</div>
+        <p>문항 점수 ${sc.raw}점${sc.penalty ? ", 답 조합 감점 −" + sc.penalty + "점" : ", 답 조합 감점 없음"}</p>
+        <p class="muted">${esc(grading.verdict.note)}</p></div>
+      ${combosHtml(sc)}
       <h3>영역별 점수</h3><table class="dims"><tr><th>영역</th><th>점수</th></tr>${dims}</table>
       <h3>대면면접 추가질문</h3>${fus.map(followHtml).join("")}
       <h3>문항별 답과 점수</h3>${E.questions.map((q, i) => qResultHtml(q, i, sc)).join("")}
@@ -290,7 +306,7 @@
     }, 1000);
   }
   function toJson() {
-    const sc = Scoring.scoreAll(grading, state.answers, state.overrides);
+    const sc = Scoring.scoreAll(grading, state.answers, state.overrides, state.comboOff);
     const blob = new Blob([JSON.stringify({ version: E.version, state, score: sc }, null, 2)], { type: "application/json" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -340,6 +356,11 @@
     if (actions[act]) actions[act]();
   });
   document.addEventListener("change", (e) => {
+    if (e.target.dataset.combo !== undefined) {
+      state.comboOff[e.target.dataset.combo] = !e.target.checked;
+      save();
+      return render();
+    }
     if (e.target.dataset.ov !== undefined) {
       const v = e.target.value;
       if (v === "") delete state.overrides[e.target.dataset.ov];
