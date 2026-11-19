@@ -56,7 +56,6 @@ button.link { border: 0; background: none; color: var(--acc); padding: 0 0 0 10p
 .opt { display: flex; gap: 10px; align-items: flex-start; padding: 8px; border-radius: 8px; cursor: pointer; }
 .opt:hover { background: var(--bg); }
 .opt input { margin-top: 5px; flex: none; width: 18px; height: 18px; }
-.etc { display: block; margin: 10px 0; font-weight: 600; font-size: 13px; }
 .done { text-align: center; font-weight: 700; }
 
 .results { max-width: 920px; margin: 0 auto; }
@@ -67,8 +66,6 @@ button.link { border: 0; background: none; color: var(--acc); padding: 0 0 0 10p
 .verdict .big { font-size: 22px; font-weight: 800; }
 .qhead { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .qhead .score { margin-left: auto; }
-.etc-box { background: var(--bg); border-radius: 8px; padding: 8px 12px; }
-.etc-box p { margin: 4px 0; white-space: pre-wrap; }
 .follow .fq { font-weight: 700; font-size: 16px; }
 .follow p { margin: 4px 0; }
 .print-memo, .print-only { display: none; white-space: pre-wrap; }
@@ -154,8 +151,6 @@ button.link { border: 0; background: none; color: var(--acc); padding: 0 0 0 10p
 .legend { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .note { font-size: 13.5px; margin: 4px 0; }
 .empty { color: var(--r); font-weight: 700; }
-.etc-box { background: var(--y-bg); border: 1px dashed var(--y); border-radius: 8px; padding: 8px 12px; margin-top: 8px; }
-.etc-head { font-weight: 700; display: flex; gap: 8px; align-items: center; }
 details summary { cursor: pointer; color: var(--acc); font-size: 13.5px; margin-top: 8px; }
 
 @media (max-width: 900px) {

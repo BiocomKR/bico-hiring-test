@@ -85,13 +85,12 @@
     render();
   }
   function readForm(q) {
-    const etc = ($("#etc-" + q.id) || {}).value || "";
     if (q.type !== "single") {
       const picked = [...document.querySelectorAll("input[name=opt-" + q.id + "]:checked")].map((i) => i.value);
-      return q.type === "cards" ? { cards: picked, etc } : { options: picked, etc };
+      return q.type === "cards" ? { cards: picked } : { options: picked };
     }
     const sel = document.querySelector("input[name=opt-" + q.id + "]:checked");
-    return { option: sel ? sel.value : null, etc };
+    return { option: sel ? sel.value : null };
   }
   function validate(q, a) {
     if (q.type === "cards") {
@@ -160,7 +159,6 @@
     const hint = hints[q.type];
     return `<div class="answer-form">
       <p class="hint">${hint}</p>${opts}
-      <label class="etc">기타<textarea id="etc-${q.id}" rows="3" placeholder="${esc(q.etcLabel)}">${esc(a.etc || "")}</textarea></label>
       <button class="primary" data-act="send" data-q="${q.id}">보내기</button>
     </div>`;
   }
@@ -168,7 +166,6 @@
     const items = q.type === "cards" ? q.cards.map((c) => ({ id: c.id, text: c.label })) : q.options;
     const ids = a.cards || a.options || (a.option ? [a.option] : []);
     const lines = ids.map((id) => "• " + (items.find((o) => o.id === id) || {}).text);
-    if (a.etc && a.etc.trim()) lines.push("기타: " + a.etc.trim());
     return lines.join("\n");
   }
   function questionHtml(q, i) {
@@ -266,10 +263,6 @@
     const stat = g.kind === "multi" ? `<p class="note">결함 ${r.right || 0}개 맞힘, 결함 아닌 것 ${r.wrong || 0}개 고름</p>` : "";
     return `<ul class="opt-list">${rows}</ul>${pair}${stat}`;
   }
-  function etcHtml(a) {
-    if (!a || !a.etc || !a.etc.trim()) return "";
-    return `<div class="etc-box"><div class="etc-head">기타 서술 <span class="chip mid">자동 점수 제외, 면접관 판단</span></div><p>${esc(a.etc)}</p></div>`;
-  }
   function qResultHtml(q, i, sc) {
     const g = grading.questions[q.id];
     const r = sc.per[q.id];
@@ -285,7 +278,6 @@
         <span class="score no-print">면접관 점수 <select data-ov="${q.id}">${sel}</select></span>${changed}
       </div>
       ${a ? optionsTable(q, a, r) : '<p class="empty">답하지 않음</p>'}
-      ${etcHtml(a)}
       <details><summary>모범 답과 채점 기준</summary><p>${esc(g.model)}</p>${g.why ? "<p>" + esc(g.why) + "</p>" : ""}${g.kind === "pick" && grading.pickRule ? "<p>" + esc(grading.pickRule) + "</p>" : ""}</details>
     </div>`;
   }
