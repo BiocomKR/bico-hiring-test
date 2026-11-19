@@ -57,7 +57,7 @@
     return scoreSingle(qg, ans);
   }
 
-  function scoreAll(grading, answers, overrides) {
+  function scoreAll(grading, answers, overrides, comboOff) {
     const per = {};
     for (const qid of Object.keys(grading.questions)) {
       const r = scoreQuestion(grading.questions[qid], answers[qid]);
@@ -69,15 +69,23 @@
       const got = d.qs.reduce((s, q) => s + per[q].final, 0);
       return { id: d.id, name: d.name, got, max: d.qs.length * 3 };
     });
-    const total = dims.reduce((s, d) => s + d.got, 0);
+    const raw = dims.reduce((s, d) => s + d.got, 0);
     const max = dims.reduce((s, d) => s + d.max, 0);
-    return { per, dims, total, max, verdict: verdictOf(grading.verdict, total, dims) };
+    const combos = (grading.combos || [])
+      .filter((c) => matches(c.when, per, answers))
+      .map((c) => ({ ...c, applied: !(comboOff && comboOff[c.id]) }));
+    const sum = combos.filter((c) => c.applied).reduce((s, c) => s + c.penalty, 0);
+    const penalty = Math.min(sum, grading.comboCap ?? sum);
+    const total = Math.max(0, raw - penalty);
+    const critical = combos.some((c) => c.applied && c.critical);
+    return { per, dims, raw, penalty, total, max, combos, verdict: verdictOf(grading.verdict, total, dims, critical) };
   }
 
-  function verdictOf(v, total, dims) {
+  function verdictOf(v, total, dims, critical) {
     const allFloor = dims.every((d) => d.got * 3 >= d.max);
-    if (total >= v.recommend && allFloor) return "면접 추천";
     if (total <= v.reject) return "탈락 후보";
+    if (critical) return "보류 (위험한 답 조합)";
+    if (total >= v.recommend && allFloor) return "면접 추천";
     return "보류";
   }
 
@@ -89,9 +97,13 @@
   }
 
   function matches(when, per, answers) {
+    if (when.all) return when.all.every((c) => matches(c, per, answers));
+    if (when.any) return when.any.some((c) => matches(c, per, answers));
     const r = per[when.q];
     if (!r) return false;
-    if (when.option && !picked(answers[when.q]).some((o) => when.option.includes(o))) return false;
+    const got = picked(answers[when.q]);
+    if (when.option && !got.some((o) => when.option.includes(o))) return false;
+    if (when.notOption && got.some((o) => when.notOption.includes(o))) return false;
     if (when.maxScore !== undefined && r.final > when.maxScore) return false;
     if (when.minScore !== undefined && r.final < when.minScore) return false;
     return true;
@@ -106,7 +118,9 @@
       .map((x) => x.f);
     const weakestDim = [...scored.dims].sort((a, b) => a.got / a.max - b.got / b.max)[0];
     const weak = grading.weakest[weakestDim.id];
-    const list = specific.map((f) => ({ ...f, source: "답 " + f.when.q.replace("q", "") + "번에 따라" }));
+    const combos = scored.combos.filter((c) => c.applied).slice(0, 2)
+      .map((c) => ({ id: c.id, q: c.q, intent: c.intent, expect: c.expect, flag: c.flag, source: "답 조합: " + c.title }));
+    const list = combos.concat(specific.map((f) => ({ ...f, source: "답 " + f.when.q.replace("q", "") + "번에 따라" })));
     if (weak) list.push({ id: "w-" + weakestDim.id, ...weak, source: "가장 약한 영역: " + weakestDim.name });
     grading.always.forEach((a) => list.push({ ...a, source: "공통" }));
     return list;
