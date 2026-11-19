@@ -173,6 +173,51 @@ test("조합 추가질문이 먼저 나온다", opt, () => {
   assert.equal(f[0].id, "k1");
 });
 
+test("연차로 구간을 고른다", opt, () => {
+  assert.equal(S.levelReport(G, S.scoreAll(G, {}, {}), 0).band.id, "junior");
+  assert.equal(S.levelReport(G, S.scoreAll(G, {}, {}), 3).band.id, "mid");
+  assert.equal(S.levelReport(G, S.scoreAll(G, {}, {}), 12).band.id, "senior");
+  assert.equal(S.levelReport(G, S.scoreAll(G, {}, {}), null), null);
+});
+
+test("연차는 판정을 바꾸지 않는다", opt, () => {
+  const ans = fullMarks();
+  ans.q9 = { options: ["a"] };
+  const sc = S.scoreAll(G, ans, {});
+  const before = sc.verdict;
+  S.levelReport(G, sc, 15);
+  assert.equal(sc.verdict, before);
+});
+
+test("같은 점수라도 연차에 따라 기대 미달이 갈린다", opt, () => {
+  const ans = fullMarks();
+  ans.q9 = { options: ["a"] };
+  ans.q8 = { options: ["a"] };
+  const sc = S.scoreAll(G, ans, {});
+  const d6 = (y) => S.levelReport(G, sc, y).dims.find((d) => d.id === "D6").status;
+  assert.equal(d6(1), "기대 이상");
+  assert.equal(d6(10), "기대 미달");
+});
+
+test("시니어가 위험 조합에 걸리면 경고가 붙는다", opt, () => {
+  const sc = S.scoreAll(G, { q5: { option: "b" } }, {});
+  assert.ok(S.levelReport(G, sc, 10).warnings.length > 0);
+  assert.equal(S.levelReport(G, sc, 1).warnings.length, 0);
+});
+
+test("연차 맞춤 추가질문이 붙는다", opt, () => {
+  const sc = S.scoreAll(G, {}, {});
+  const f = S.selectFollowups(G, sc, {}, 4, 10);
+  assert.ok(f.some((x) => x.id === "lv-senior"));
+});
+
+test("조합 질문과 같은 문항의 질문은 겹쳐 나오지 않는다", opt, () => {
+  const ans = { q5: { option: "b" } };
+  const ids = S.selectFollowups(G, S.scoreAll(G, ans, {}), ans, 10).map((x) => x.id);
+  assert.ok(ids.includes("k3"));
+  assert.ok(!ids.includes("f10"));
+});
+
 function fullMarks() {
   return {
     q1: { cards: ["c1", "c3", "c5"] }, q2: { option: "c" }, q3: { option: "d" },
