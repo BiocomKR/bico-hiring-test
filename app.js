@@ -6,12 +6,14 @@
   const $ = (sel) => document.querySelector(sel);
   let state = load();
   state.comboOff = state.comboOff || {};
+  state.visits = state.visits || {};
+  state.pending = state.pending || {};
   let grading = null;
   let tab = "exam";
 
   function fresh() {
     return { phase: "intro", name: "", answers: {}, edits: {}, revealed: 1, editing: null,
-      away: { count: 0, ms: 0, since: null }, overrides: {}, comboOff: {}, fmemo: {}, memo: "" };
+      away: { count: 0, ms: 0, since: null }, overrides: {}, comboOff: {}, fmemo: {}, memo: "", visits: {}, pending: {}, clock: null };
   }
   function load() {
     try {
@@ -81,10 +83,26 @@
     if (!name) return alert("이름을 입력해 주세요.");
     if (raw === "" || !Number.isInteger(years) || years < 0 || years > 40) return alert("개발 연차를 0~40 사이 숫자로 입력해 주세요. 신입은 0입니다.");
     Object.assign(state, { phase: "exam", name, years, startedAt: Date.now() });
+    clockTo("q1");
     save();
     render();
   }
+  // 문항별 시간: 그 문항의 입력 칸이 열려 있던 시간만 그 문항에 쌓는다
+  function clockTo(qid) {
+    const c = state.clock;
+    if (c && c.qid) state.pending[c.qid] = (state.pending[c.qid] || 0) + (Date.now() - c.since);
+    state.clock = qid ? { qid, since: Date.now() } : null;
+  }
+  function currentQ() {
+    if (state.editing) return state.editing;
+    const q = E.questions.slice(0, state.revealed).find((x) => !state.answers[x.id]);
+    return q ? q.id : null;
+  }
   function readForm(q) {
+    if (q.type === "slots") {
+      const pick = (s) => (document.querySelector("input[name=opt-" + q.id + "-" + s.id + "]:checked") || {}).value || null;
+      return { slots: Object.fromEntries(q.slots.map((s) => [s.id, pick(s)])) };
+    }
     if (q.type !== "single") {
       const picked = [...document.querySelectorAll("input[name=opt-" + q.id + "]:checked")].map((i) => i.value);
       return q.type === "cards" ? { cards: picked } : { options: picked };
@@ -97,6 +115,7 @@
       if (a.cards.length !== q.pick) return "카드를 " + q.pick + "장 골라 주세요.";
       return confirm("카드를 열면 바꿀 수 없어요. 이 3장을 열까요?") ? null : "";
     }
+    if (q.type === "slots") return Object.values(a.slots).some((v) => !v) ? "칸마다 하나씩 골라 주세요." : null;
     if (q.type === "pick" && a.options.length > q.max) return "보기는 " + q.max + "개까지 고를 수 있어요.";
     const empty = q.type === "single" ? !a.option : !a.options.length;
     return empty ? "보기를 하나 이상 골라 주세요." : null;
@@ -107,10 +126,14 @@
     const err = validate(q, a);
     if (err) return err && alert(err);
     if (state.answers[qid]) state.edits[qid] = (state.edits[qid] || 0) + 1;
+    clockTo(null);
+    (state.visits[qid] = state.visits[qid] || []).push({ ms: state.pending[qid] || 0, answer: a });
+    state.pending[qid] = 0;
     state.answers[qid] = a;
     state.editing = null;
     const idx = E.questions.indexOf(q);
     state.revealed = Math.max(state.revealed, Math.min(idx + 2, E.questions.length));
+    clockTo(currentQ());
     save();
     render();
     const chat = $("#chat");
@@ -122,6 +145,7 @@
       state.away.ms += Date.now() - state.away.since;
       state.away.since = null;
     }
+    clockTo(null);
     Object.assign(state, { phase: "done", endedAt: Date.now(), autoSubmitted: !!auto, editing: null });
     save();
     render();
@@ -149,8 +173,19 @@
       <h3>AI 초안 설계안</h3><div class="draft">${E.draftHtml}</div>
     </div>`;
   }
+  function slotsInputHtml(q, a) {
+    const cur = a.slots || {};
+    const groups = q.slots.map((s) => `<fieldset class="slot"><legend>${esc(s.label)}</legend>${s.options.map((o) =>
+      `<label class="opt"><input type="radio" name="opt-${q.id}-${s.id}" value="${o.id}" ${cur[s.id] === o.id ? "checked" : ""}><span>${esc(o.text)}</span></label>`).join("")}</fieldset>`).join("");
+    return `<div class="answer-form"><p class="hint">칸마다 하나씩 고르세요.</p>${groups}
+      <button class="primary" data-act="send" data-q="${q.id}">보내기</button></div>`;
+  }
+  function slotText(q, a) {
+    return q.slots.map((s) => (s.options.find((o) => o.id === (a.slots || {})[s.id]) || {}).text || "(고르지 않음)");
+  }
   function inputHtml(q) {
     const a = state.answers[q.id] || {};
+    if (q.type === "slots") return slotsInputHtml(q, a);
     const isMulti = q.type !== "single";
     const items = q.type === "cards" ? q.cards.map((c) => ({ id: c.id, text: c.label })) : q.options;
     const chosen = a.cards || a.options || (a.option ? [a.option] : []);
@@ -163,6 +198,7 @@
     </div>`;
   }
   function answerText(q, a) {
+    if (q.type === "slots") return slotText(q, a).map((t, i) => "• " + q.slots[i].label + ": " + t).join("\n");
     const items = q.type === "cards" ? q.cards.map((c) => ({ id: c.id, text: c.label })) : q.options;
     const ids = a.cards || a.options || (a.option ? [a.option] : []);
     const lines = ids.map((id) => "• " + (items.find((o) => o.id === id) || {}).text);
@@ -236,8 +272,9 @@
   }
   function optLabel(g, id, chosen) {
     if (g.kind === "multi") {
-      if (g.flaws.includes(id)) return chosen ? ["good", "결함 맞힘"] : ["miss", "놓친 결함"];
-      return chosen ? ["bad", "결함 아님, 감점"] : ["", "결함 아님"];
+      const L = g.labels || { hit: "결함 맞힘", miss: "놓친 결함", wrong: "결함 아님, 감점", fine: "결함 아님" };
+      if (g.flaws.includes(id)) return chosen ? ["good", L.hit] : ["miss", L.miss];
+      return chosen ? ["bad", L.wrong] : ["", L.fine];
     }
     if (g.kind === "cards") {
       const w = g.weights[id] || 0;
@@ -260,8 +297,41 @@
     }).join("");
     const pair = g.kind === "pick"
       ? `<p class="note">정답 짝: <b>${best.map((x) => x.toUpperCase()).join(" + ")}</b>${r.pair ? " → 지원자가 정답 짝을 골랐습니다" : ""}</p>` : "";
-    const stat = g.kind === "multi" ? `<p class="note">결함 ${r.right || 0}개 맞힘, 결함 아닌 것 ${r.wrong || 0}개 고름</p>` : "";
+    const stat = g.kind === "multi" ? `<p class="note">맞게 고른 것 ${r.right || 0}개, 잘못 고른 것 ${r.wrong || 0}개</p>` : "";
     return `<ul class="opt-list">${rows}</ul>${pair}${stat}`;
+  }
+  function slotsTable(q, a) {
+    const g = grading.questions[q.id];
+    return q.slots.map((s) => {
+      const rows = s.options.map((o) => {
+        const isC = (a.slots || {})[s.id] === o.id;
+        const v = g.slots[s.id][o.id] || 0;
+        return `<li class="opt-row ${isC ? "chosen" : ""}">${isC ? '<span class="pick">고름</span>' : '<span class="pick off"></span>'}<span class="otext">${esc(o.text)}</span>${v ? '<span class="best">정답</span>' : ""}<span class="chip ${v ? "good" : "bad"}">${num(v)}점</span></li>`;
+      }).join("");
+      return `<p class="note"><b>${esc(s.label)}</b></p><ul class="opt-list">${rows}</ul>`;
+    }).join("");
+  }
+  const dur = (ms) => Math.floor(ms / 60000) + ":" + String(Math.floor((ms % 60000) / 1000)).padStart(2, "0");
+  function shortAns(a) {
+    if (a.slots) return Object.values(a.slots).map((v) => String(v).toUpperCase()).join("/");
+    const ids = a.cards || a.options || (a.option ? [a.option] : []);
+    return ids.map((x) => x.toUpperCase()).join("+") || "(없음)";
+  }
+  function timeOf(qid) {
+    const v = state.visits[qid] || [];
+    return { visits: v, total: v.reduce((s, x) => s + x.ms, 0) };
+  }
+  function timeHtml(qid, longest) {
+    const t = timeOf(qid);
+    if (!t.visits.length) return "";
+    const edits = t.visits.slice(1);
+    const detail = edits.length ? ` (첫 답 ${dur(t.visits[0].ms)}, 수정 ${edits.map((x) => dur(x.ms)).join(", ")})` : "";
+    const hist = edits.length ? `<p class="note">답 변화: ${t.visits.map((x) => esc(shortAns(x.answer))).join(" → ")}</p>` : "";
+    const flag = qid === longest ? '<span class="chip mid">가장 오래 걸림</span>' : t.total < 15000 ? '<span class="chip mid">15초 안에 답함</span>' : "";
+    return `<p class="note time">⏱ 풀이 시간 <b>${dur(t.total)}</b>${detail} ${flag}</p>${hist}`;
+  }
+  function longestQ() {
+    return E.questions.map((q) => [q.id, timeOf(q.id).total]).sort((a, b) => b[1] - a[1])[0][0];
   }
   function qResultHtml(q, i, sc) {
     const g = grading.questions[q.id];
@@ -277,14 +347,15 @@
         <div class="qtitle"><b>${i + 1}. ${esc(q.title)}</b><span class="muted">${esc(g.type || "")}${state.edits[q.id] ? ", 수정 " + state.edits[q.id] + "회" : ""}</span></div>
         <span class="score no-print">면접관 점수 <select data-ov="${q.id}">${sel}</select></span>${changed}
       </div>
-      ${a ? optionsTable(q, a, r) : '<p class="empty">답하지 않음</p>'}
+      ${timeHtml(q.id, sc.longest)}
+      ${a ? (q.type === "slots" ? slotsTable(q, a) : optionsTable(q, a, r)) : '<p class="empty">답하지 않음</p>'}
       <details><summary>모범 답과 채점 기준</summary><p>${esc(g.model)}</p>${g.why ? "<p>" + esc(g.why) + "</p>" : ""}${g.kind === "pick" && grading.pickRule ? "<p>" + esc(grading.pickRule) + "</p>" : ""}</details>
     </div>`;
   }
   function overviewHtml(sc) {
     const tiles = E.questions.map((q, i) => {
       const f = sc.per[q.id].final;
-      return `<a class="tile ${tone(f, 3)}" href="#res-${q.id}"><span class="tno">${i + 1}</span><span class="tsc">${num(f)}</span><span class="tname">${esc(q.title)}</span></a>`;
+      return `<a class="tile ${tone(f, 3)}" href="#res-${q.id}"><span class="tno">${i + 1}</span><span class="tsc">${num(f)}</span><span class="tname">${esc(q.title)}</span><span class="ttime">${dur(timeOf(q.id).total)}</span></a>`;
     }).join("");
     return `<div class="tiles">${tiles}</div>`;
   }
@@ -317,7 +388,7 @@
     const title = (qid) => (qById(qid) || {}).title || qid;
     const cards = sc.combos.map((c) => `<div class="combo ${c.critical ? "critical" : ""} ${c.applied ? "" : "off"}">
       <div class="qhead"><span class="badge s0">−${num(c.penalty)}</span>
-        <div class="qtitle"><b>${esc(c.title)}</b><span class="muted">관련 답: ${c.qs.map((q) => esc(q.replace("q", "") + "번 " + title(q))).join(", ")}</span></div>
+        <div class="qtitle"><b>${esc(c.title)}</b><span class="muted">관련 답: ${c.qs.map((q) => esc(E.questions.findIndex((x) => x.id === q) + 1 + "번 " + title(q))).join(", ")}</span></div>
         ${c.critical ? '<span class="tag">위험 조합</span>' : ""}
         <label class="no-print apply"><input type="checkbox" data-combo="${c.id}" ${c.applied ? "checked" : ""}> 감점 적용</label>
         <span class="print-only">${c.applied ? "적용" : "면접관이 적용 안 함"}</span></div>
@@ -349,6 +420,7 @@
     const sc = Scoring.scoreAll(grading, state.answers, state.overrides, state.comboOff);
     const fus = Scoring.selectFollowups(grading, sc, state.answers, 4, state.years);
     const lv = Scoring.levelReport(grading, sc, state.years);
+    sc.longest = longestQ();
     return `<div class="results">
       <div class="toolbar no-print"><button class="primary" data-act="pdf">PDF로 저장</button><button data-act="json">JSON 내보내기</button><button class="danger" data-act="reset">다음 지원자 준비(초기화)</button></div>
       <h2 class="rtitle">${esc(state.name)} <span class="muted">${state.years != null ? state.years + "년차, " : ""}평가 결과</span></h2>
@@ -423,6 +495,7 @@
     if (act === "send") return send(t.dataset.q);
     if (act === "edit") {
       state.editing = t.dataset.q;
+      clockTo(t.dataset.q);
       save();
       return render();
     }

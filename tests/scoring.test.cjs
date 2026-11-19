@@ -71,14 +71,15 @@ test("식별정보를 가리지 않고 보내면 그 답 하나로 위험 조합
 
 test("자기 답끼리 모순되면 조합 감점", opt, () => {
   const ids = (ans) => S.scoreAll(G, ans, {}).combos.map((c) => c.id);
-  assert.ok(ids({ q2: { option: "c" } }).includes("k10"));
+  assert.ok(ids({ qn: { options: ["n1"] } }).includes("k10"));
+  assert.ok(!ids({ qn: { options: ["n1"] }, q7: { options: ["p5"] } }).includes("k10"));
   assert.ok(ids({ q3: { option: "e" }, q11: { options: ["b"] } }).includes("k11"));
   assert.ok(ids({ q3: { option: "d" }, q9: { options: ["a"] } }).includes("k12"));
   assert.ok(!ids({ q3: { option: "d" }, q9: { options: ["a", "b"] } }).includes("k12"));
 });
 
 test("면접관 점수가 자동 점수를 대신하고 판정에 반영", opt, () => {
-  const a = { q2: { option: "c" } };
+  const a = { q10: { option: "a" } };
   const base = S.scoreAll(G, a, {});
   const ov = S.scoreAll(G, a, { q3: 3 });
   assert.equal(ov.total - base.total, 3);
@@ -106,11 +107,10 @@ test("정답 짝을 고르면 그 문항의 보기 기반 추가질문은 나오
 });
 
 test("추가질문은 점수가 낮은 문항부터 고른다", opt, () => {
-  const ans = {
-    q1: { cards: ["c1", "c3", "c5"] }, q7: { options: ["p1", "p2", "p3", "p4", "p5", "p6", "p9"] },
-    q2: { option: "a" }, q10: { option: "c" }
-  };
-  const f = S.selectFollowups(G, S.scoreAll(G, ans, {}), ans, 1);
+  const ans = fullMarks();
+  ans.q2 = { slots: { who: "a", where: "b", what: "a" } };
+  ans.q10 = { option: "c" };
+  const f = S.selectFollowups(G, S.scoreAll(G, ans, {}), ans, 1).filter((x) => x.id.startsWith("f"));
   assert.equal(f[0].id, "f17");
 });
 
@@ -170,7 +170,8 @@ test("위험 조합이 있으면 점수가 높아도 추천하지 않는다", op
 test("조합 추가질문이 먼저 나온다", opt, () => {
   const ans = { q3: { option: "a" }, q6: { options: ["b"] } };
   const f = S.selectFollowups(G, S.scoreAll(G, ans, {}), ans, 4);
-  assert.equal(f[0].id, "k1");
+  assert.equal(f[0].id, "o1");
+  assert.equal(f[1].id, "k1");
 });
 
 test("연차로 구간을 고른다", opt, () => {
@@ -218,9 +219,29 @@ test("조합 질문과 같은 문항의 질문은 겹쳐 나오지 않는다", o
   assert.ok(!ids.includes("f10"));
 });
 
+test("문장 조립: 칸마다 1점", opt, () => {
+  assert.equal(q("q2", { slots: { who: "a", where: "b", what: "b" } }), 3);
+  assert.equal(q("q2", { slots: { who: "b", where: "a", what: "a" } }), 0);
+  assert.equal(q("q2", { slots: { who: "a", where: "b", what: "a" } }), 2);
+});
+
+test("하지 않을 것: 꼭 해야 할 일을 빼면 감점", opt, () => {
+  assert.equal(q("qn", { options: ["n1", "n2", "n3", "n7"] }), 3);
+  assert.equal(q("qn", { options: ["n1", "n2", "n3", "n7", "n6"] }), 2);
+  assert.equal(q("qn", { options: ["n1", "n2", "n3", "n4", "n5", "n6", "n7"] }), 0);
+});
+
+test("정보 수집: 질문 다듬기와 성립 조건 확인", opt, () => {
+  assert.equal(q("qa", { option: "b" }), 3);
+  assert.equal(q("qa", { option: "d" }), 0);
+  assert.equal(q("qc", { options: ["a", "b"] }), 3);
+  assert.equal(q("qc", { options: ["a", "e"] }), 1);
+});
+
 function fullMarks() {
   return {
-    q1: { cards: ["c1", "c3", "c5"] }, q2: { option: "c" }, q3: { option: "d" },
+    q1: { cards: ["c1", "c3", "c5"] }, qa: { option: "b" }, q2: { slots: { who: "a", where: "b", what: "b" } },
+    qc: { options: ["a", "b"] }, qn: { options: ["n1", "n2", "n3", "n7"] }, q3: { option: "d" },
     q4: { options: ["a", "b"] }, q5: { option: "d" }, q6: { options: ["a", "d"] },
     q7: { options: ["p1", "p2", "p3", "p4", "p5", "p6", "p9"] }, q8: { options: ["a", "d"] },
     q9: { options: ["b", "c"] }, q10: { option: "a" }, q11: { options: ["a", "b"] }
@@ -229,7 +250,7 @@ function fullMarks() {
 
 test("만점 답안은 면접 추천", opt, () => {
   const sc = S.scoreAll(G, fullMarks(), {});
-  assert.equal(sc.total, 33);
+  assert.equal(sc.total, 42);
   assert.equal(sc.combos.length, 0);
   assert.equal(sc.verdict, "면접 추천");
 });

@@ -76,7 +76,11 @@ button.link { border: 0; background: none; color: var(--acc); padding: 0 0 0 10p
 .combo p { margin: 6px 0; }
 .combo.off { opacity: 0.55; }
 
+.slot { border: 1px solid var(--line); border-radius: 10px; margin: 8px 0; padding: 4px 8px; }
+.slot legend { font-weight: 700; font-size: 13px; color: var(--acc); padding: 0 6px; }
 /* 결과 탭 */
+.ttime { font-size: 11px; color: var(--mut); font-variant-numeric: tabular-nums; }
+.note.time { color: var(--mut); }
 .level { margin-top: 16px; }
 .lv-head { display: flex; gap: 10px; align-items: center; font-size: 16px; }
 .lv-table { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 6px; }

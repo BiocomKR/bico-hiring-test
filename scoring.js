@@ -29,7 +29,13 @@
     return { auto: ans.option != null ? qg.options[ans.option] || 0 : 0 };
   }
 
-  const scorers = { cards: scoreCards, multi: scoreMulti, pick: scorePick, single: scoreSingle };
+  function scoreSlots(qg, ans) {
+    const chosen = ans.slots || {};
+    const sum = Object.keys(qg.slots).reduce((s, k) => s + (qg.slots[k][chosen[k]] || 0), 0);
+    return { auto: sum };
+  }
+
+  const scorers = { cards: scoreCards, multi: scoreMulti, pick: scorePick, single: scoreSingle, slots: scoreSlots };
 
   function scoreQuestion(qg, ans) {
     if (!ans) return { auto: 0, unanswered: true };
@@ -127,7 +133,8 @@
     const weak = grading.weakest[weakestDim.id];
     const combos = shown
       .map((c) => ({ id: c.id, q: c.q, intent: c.intent, expect: c.expect, flag: c.flag, source: "답 조합: " + c.title }));
-    const list = combos.concat(specific.map((f) => ({ ...f, source: "답 " + f.when.q.replace("q", "") + "번에 따라" })));
+    const openers = (grading.openers || []).map((o) => ({ ...o, source: "면접 시작 질문" }));
+    const list = openers.concat(combos).concat(specific.map((f) => ({ ...f, source: "답 " + (grading.order.indexOf(f.when.q) + 1) + "번에 따라" })));
     if (weak) list.push({ id: "w-" + weakestDim.id, ...weak, source: "가장 약한 영역: " + weakestDim.name });
     const band = bandOf(grading, years);
     if (band) list.push({ id: "lv-" + band.id, ...band.followup, source: "연차 맞춤: " + band.name });
