@@ -215,60 +215,126 @@
       <label class="field">비밀번호<input id="pw" type="password" autocomplete="off"></label>
       <button class="primary" data-act="unlock">열기</button></section>`;
   }
-  function choiceHtml(q, a, r) {
-    if (!a) return '<p class="muted">답하지 않음</p>';
-    const items = q.type === "cards" ? q.cards.map((c) => ({ id: c.id, text: c.label })) : q.options;
-    const ids = a.cards || a.options || (a.option ? [a.option] : []);
+  const num = (v) => (Number.isInteger(v) ? String(v) : v.toFixed(1));
+  function tone(got, max) {
+    const r = max ? got / max : 0;
+    return r >= 0.99 ? "s3" : r >= 0.6 ? "s2" : r >= 0.3 ? "s1" : "s0";
+  }
+  function itemsOf(q) {
+    return q.type === "cards" ? q.cards.map((c) => ({ id: c.id, text: c.label })) : q.options;
+  }
+  function pickedOf(a) {
+    return a ? a.cards || a.options || (a.option ? [a.option] : []) : [];
+  }
+  function bestOf(g) {
+    if (g.kind === "cards") return g.high;
+    if (g.kind === "multi") return g.flaws;
+    if (g.kind === "pick") return Object.keys(g.pairs).find((k) => g.pairs[k] === 3).split("+");
+    const top = Math.max(...Object.values(g.options));
+    return Object.keys(g.options).filter((k) => g.options[k] === top);
+  }
+  function optLabel(g, id, chosen) {
+    if (g.kind === "multi") {
+      if (g.flaws.includes(id)) return chosen ? ["good", "결함 맞힘"] : ["miss", "놓친 결함"];
+      return chosen ? ["bad", "결함 아님, 감점"] : ["", "결함 아님"];
+    }
+    if (g.kind === "cards") {
+      const w = g.weights[id] || 0;
+      return [chosen ? (w >= 1 ? "good" : w > 0 ? "mid" : "bad") : w >= 1 ? "miss" : "", num(w) + "점"];
+    }
+    const v = g.options[id] || 0;
+    return [v === 0 ? "bad" : v >= 2 ? "good" : "mid", num(v) + "점"];
+  }
+  function optionsTable(q, a, r) {
     const g = grading.questions[q.id];
-    const tag = (id) => {
-      if (g.kind === "single" || g.kind === "pick") return " (보기 " + (g.options[id] || 0) + "점)";
-      if (g.kind === "multi") return g.flaws.includes(id) ? " (결함 맞힘)" : " (결함 아님, 감점)";
-      return g.high.includes(id) ? " (핵심 카드)" : "";
-    };
-    const list = ids.map((id) => "<li>" + esc((items.find((o) => o.id === id) || {}).text) + "<b>" + tag(id) + "</b></li>").join("");
-    const pair = r.pair ? '<p class="muted">정답 짝을 골라 3점입니다.</p>' : "";
-    const etc = a.etc && a.etc.trim()
-      ? `<div class="etc-box"><b>기타 (자동 점수 제외, 면접관 판단)</b><p>${esc(a.etc)}</p></div>` : "";
-    return "<ul>" + list + "</ul>" + pair + etc;
+    const chosen = pickedOf(a);
+    const best = bestOf(g);
+    const rows = itemsOf(q).map((o) => {
+      const isC = chosen.includes(o.id);
+      const [cls, label] = optLabel(g, o.id, isC);
+      const mark = isC ? '<span class="pick">고름</span>' : '<span class="pick off"></span>';
+      const star = best.includes(o.id) && g.kind !== "multi" && g.kind !== "cards" ? '<span class="best">정답</span>' : "";
+      const letter = g.kind === "single" || g.kind === "pick" ? `<span class="oid">${o.id.toUpperCase()}</span>` : "";
+      return `<li class="opt-row ${isC ? "chosen" : ""}">${mark}${letter}<span class="otext">${esc(o.text)}</span>${star}<span class="chip ${cls}">${label}</span></li>`;
+    }).join("");
+    const pair = g.kind === "pick"
+      ? `<p class="note">정답 짝: <b>${best.map((x) => x.toUpperCase()).join(" + ")}</b>${r.pair ? " → 지원자가 정답 짝을 골랐습니다" : ""}</p>` : "";
+    const stat = g.kind === "multi" ? `<p class="note">결함 ${r.right || 0}개 맞힘, 결함 아닌 것 ${r.wrong || 0}개 고름</p>` : "";
+    return `<ul class="opt-list">${rows}</ul>${pair}${stat}`;
+  }
+  function etcHtml(a) {
+    if (!a || !a.etc || !a.etc.trim()) return "";
+    return `<div class="etc-box"><div class="etc-head">기타 서술 <span class="chip mid">자동 점수 제외, 면접관 판단</span></div><p>${esc(a.etc)}</p></div>`;
   }
   function qResultHtml(q, i, sc) {
     const g = grading.questions[q.id];
     const r = sc.per[q.id];
+    const a = state.answers[q.id];
     const ov = state.overrides[q.id];
-    const sel = ["", 0, 1, 2, 3].map((v) => `<option value="${v}" ${String(ov ?? "") === String(v) ? "selected" : ""}>${v === "" ? "자동(" + r.auto + ")" : v + "점"}</option>`).join("");
-    return `<div class="qres card">
-      <div class="qhead"><b>${i + 1}. ${esc(q.title)}</b><span class="muted">${esc(g.type || "")}</span>
-        <span class="score">자동 ${r.auto}점, 면접관 <select data-ov="${q.id}">${sel}</select><b class="print-only">최종 ${r.final}점</b></span></div>
-      ${choiceHtml(q, state.answers[q.id], r)}
-      ${state.edits[q.id] ? `<p class="muted">수정 ${state.edits[q.id]}회</p>` : ""}
+    const steps = ["", 0, 0.5, 1, 1.5, 2, 2.5, 3];
+    const sel = steps.map((v) => `<option value="${v}" ${String(ov ?? "") === String(v) ? "selected" : ""}>${v === "" ? "자동 " + num(r.auto) + "점" : num(v) + "점"}</option>`).join("");
+    const changed = ov !== undefined && ov !== "" ? '<span class="chip mid">면접관 수정</span>' : "";
+    return `<div class="qres card ${tone(r.final, 3)}" id="res-${q.id}">
+      <div class="qhead">
+        <span class="badge ${tone(r.final, 3)}">${num(r.final)}</span>
+        <div class="qtitle"><b>${i + 1}. ${esc(q.title)}</b><span class="muted">${esc(g.type || "")}${state.edits[q.id] ? ", 수정 " + state.edits[q.id] + "회" : ""}</span></div>
+        <span class="score no-print">면접관 점수 <select data-ov="${q.id}">${sel}</select></span>${changed}
+      </div>
+      ${a ? optionsTable(q, a, r) : '<p class="empty">답하지 않음</p>'}
+      ${etcHtml(a)}
       <details><summary>모범 답과 채점 기준</summary><p>${esc(g.model)}</p>${g.why ? "<p>" + esc(g.why) + "</p>" : ""}${g.kind === "pick" && grading.pickRule ? "<p>" + esc(grading.pickRule) + "</p>" : ""}</details>
     </div>`;
   }
-  function combosHtml(sc) {
-    if (!sc.combos.length) return "";
-    const title = (qid) => (qById(qid) || {}).title || qid;
-    const cards = sc.combos.map((c) => `<div class="combo card ${c.critical ? "critical" : ""} ${c.applied ? "" : "off"}">
-      <div class="qhead"><b>${esc(c.title)}</b>${c.critical ? '<span class="tag">위험 조합</span>' : ""}
-        <span class="score"><label class="no-print"><input type="checkbox" data-combo="${c.id}" ${c.applied ? "checked" : ""}> 감점 적용</label>
-        <b>−${c.penalty}점</b><span class="print-only">${c.applied ? "적용" : "면접관이 적용 안 함"}</span></span></div>
-      <p class="muted">관련 답: ${c.qs.map((q) => esc(q.replace("q", "") + "번 " + title(q))).join(", ")}</p>
-      <p><b>파급효과</b> ${esc(c.ripple)}</p></div>`).join("");
-    const cap = grading.comboCap ? ` (감점은 최대 ${grading.comboCap}점)` : "";
-    return `<h3>답 조합 감점${cap}</h3><p class="muted">문항 하나씩은 그럴듯해도 함께 고르면 나중에 문제가 커지는 조합입니다. 위험 조합이 하나라도 적용되면 점수와 관계없이 추천하지 않습니다.</p>${cards}`;
+  function overviewHtml(sc) {
+    const tiles = E.questions.map((q, i) => {
+      const f = sc.per[q.id].final;
+      return `<a class="tile ${tone(f, 3)}" href="#res-${q.id}"><span class="tno">${i + 1}</span><span class="tsc">${num(f)}</span><span class="tname">${esc(q.title)}</span></a>`;
+    }).join("");
+    return `<div class="tiles">${tiles}</div>`;
   }
-  function followHtml(f) {
+  function dimsHtml(sc) {
+    return `<div class="dimbars">${sc.dims.map((d) => `<div class="dimrow">
+      <span class="dname">${esc(d.name)}</span>
+      <span class="bar"><span class="fill ${tone(d.got, d.max)}" style="width:${Math.round((d.got / d.max) * 100)}%"></span></span>
+      <span class="dscore"><b>${num(d.got)}</b> / ${d.max}</span></div>`).join("")}</div>`;
+  }
+  function verdictHtml(sc) {
+    const cls = sc.verdict === "면접 추천" ? "ok" : sc.verdict === "탈락 후보" ? "no" : "hold";
+    return `<div class="hero ${cls}">
+      <div class="hero-main"><span class="hero-score">${num(sc.total)}</span><span class="hero-max">/ ${sc.max}점</span></div>
+      <div class="hero-side"><div class="hero-verdict">${esc(sc.verdict)}</div>
+        <div class="hero-calc">문항 점수 <b>${num(sc.raw)}</b>${sc.penalty ? ` − 답 조합 감점 <b class="neg">${num(sc.penalty)}</b>` : " (답 조합 감점 없음)"}</div></div>
+    </div><p class="muted small">${esc(grading.verdict.note)}</p>`;
+  }
+  function combosHtml(sc) {
+    if (!sc.combos.length) return `<section class="sec"><h3><span class="sno">2</span>답 조합 감점</h3><p class="good-note">걸린 조합이 없습니다.</p></section>`;
+    const title = (qid) => (qById(qid) || {}).title || qid;
+    const cards = sc.combos.map((c) => `<div class="combo ${c.critical ? "critical" : ""} ${c.applied ? "" : "off"}">
+      <div class="qhead"><span class="badge s0">−${num(c.penalty)}</span>
+        <div class="qtitle"><b>${esc(c.title)}</b><span class="muted">관련 답: ${c.qs.map((q) => esc(q.replace("q", "") + "번 " + title(q))).join(", ")}</span></div>
+        ${c.critical ? '<span class="tag">위험 조합</span>' : ""}
+        <label class="no-print apply"><input type="checkbox" data-combo="${c.id}" ${c.applied ? "checked" : ""}> 감점 적용</label>
+        <span class="print-only">${c.applied ? "적용" : "면접관이 적용 안 함"}</span></div>
+      <p class="ripple"><span class="lbl">파급효과</span>${esc(c.ripple)}</p></div>`).join("");
+    const cap = grading.comboCap ? `, 최대 ${grading.comboCap}점` : "";
+    return `<section class="sec"><h3><span class="sno">2</span>답 조합 감점 <span class="muted">(${sc.combos.length}건${cap})</span></h3>
+      <p class="muted small">문항 하나씩은 그럴듯해도 함께 고르면 나중에 문제가 커지는 조합입니다. 위험 조합이 하나라도 적용되면 점수와 관계없이 추천하지 않습니다.</p>${cards}</section>`;
+  }
+  function followHtml(f, i) {
     const memo = state.fmemo[f.id] || "";
-    return `<div class="follow card"><p class="muted">${esc(f.source)}</p><p class="fq">${esc(f.q)}</p>
-      <p><b>의도</b> ${esc(f.intent)}</p><p><b>기대 답</b> ${esc(f.expect)}</p><p><b>나쁜 신호</b> ${esc(f.flag)}</p>
+    return `<div class="follow card"><div class="fhead"><span class="fno">Q${i + 1}</span><span class="src">${esc(f.source)}</span></div>
+      <p class="fq">${esc(f.q)}</p>
+      <dl class="fdl"><dt class="i">의도</dt><dd>${esc(f.intent)}</dd><dt class="e">기대 답</dt><dd>${esc(f.expect)}</dd><dt class="f">나쁜 신호</dt><dd>${esc(f.flag)}</dd></dl>
       <textarea data-fmemo="${f.id}" rows="2" placeholder="면접 메모">${esc(memo)}</textarea><div class="print-memo">${esc(memo)}</div></div>`;
   }
   function metaHtml() {
     const mins = state.endedAt ? Math.round((state.endedAt - state.startedAt) / 60000) : "-";
-    return `<table class="meta">
-      <tr><th>지원자</th><td>${esc(state.name)}</td><th>시험일</th><td>${fmt(state.startedAt)}</td></tr>
-      <tr><th>시작</th><td>${fmt(state.startedAt, true)}</td><th>제출</th><td>${state.endedAt ? fmt(state.endedAt, true) + (state.autoSubmitted ? " (시간 종료 자동 제출)" : "") : "미제출"}</td></tr>
-      <tr><th>소요</th><td>${mins}분</td><th>다른 창 이동</th><td>${state.away.count}회, ${Math.round(state.away.ms / 1000)}초</td></tr>
-    </table>`;
+    const away = state.away.count ? `<b class="neg">${state.away.count}회, ${Math.round(state.away.ms / 1000)}초</b>` : "없음";
+    const sub = state.endedAt ? fmt(state.endedAt, true).slice(11) + (state.autoSubmitted ? " (시간 종료 자동)" : "") : "미제출";
+    return `<div class="meta-grid">
+      <div><span>시험일</span><b>${fmt(state.startedAt)}</b></div><div><span>시작</span><b>${fmt(state.startedAt, true).slice(11)}</b></div>
+      <div><span>제출</span><b>${esc(sub)}</b></div><div><span>소요</span><b>${mins}분</b></div>
+      <div><span>다른 창 이동</span>${away}</div></div>`;
   }
   function resultsHtml() {
     if (!grading) return lockHtml();
@@ -276,20 +342,17 @@
     if (state.phase === "intro") return '<div class="card">아직 시작한 시험이 없습니다.</div>';
     const sc = Scoring.scoreAll(grading, state.answers, state.overrides, state.comboOff);
     const fus = Scoring.selectFollowups(grading, sc, state.answers, 4);
-    const dims = sc.dims.map((d) => `<tr><td>${esc(d.name)}</td><td>${d.got} / ${d.max}</td></tr>`).join("");
     return `<div class="results">
       <div class="toolbar no-print"><button class="primary" data-act="pdf">PDF로 저장</button><button data-act="json">JSON 내보내기</button><button class="danger" data-act="reset">다음 지원자 준비(초기화)</button></div>
-      <h2>평가 결과: ${esc(state.name)} (${fmt(state.startedAt)})</h2>
+      <h2 class="rtitle">${esc(state.name)} <span class="muted">평가 결과</span></h2>
       ${metaHtml()}
-      <div class="verdict card"><div class="big">${sc.total} / ${sc.max}점, ${sc.verdict}</div>
-        <p>문항 점수 ${sc.raw}점${sc.penalty ? ", 답 조합 감점 −" + sc.penalty + "점" : ", 답 조합 감점 없음"}</p>
-        <p class="muted">${esc(grading.verdict.note)}</p></div>
+      <section class="sec"><h3><span class="sno">1</span>판정 초안</h3>${verdictHtml(sc)}${overviewHtml(sc)}</section>
       ${combosHtml(sc)}
-      <h3>영역별 점수</h3><table class="dims"><tr><th>영역</th><th>점수</th></tr>${dims}</table>
-      <h3>대면면접 추가질문</h3>${fus.map(followHtml).join("")}
-      <h3>문항별 답과 점수</h3>${E.questions.map((q, i) => qResultHtml(q, i, sc)).join("")}
-      <h3>종합 메모</h3><textarea data-memo rows="4" placeholder="면접관 종합 의견">${esc(state.memo)}</textarea><div class="print-memo">${esc(state.memo)}</div>
-      <p class="muted">자동 점수는 규칙으로 낸 초안입니다. 최종 판단은 면접관이 합니다.</p>
+      <section class="sec"><h3><span class="sno">3</span>영역별 점수</h3>${dimsHtml(sc)}</section>
+      <section class="sec"><h3><span class="sno">4</span>대면면접 추가질문</h3>${fus.map(followHtml).join("")}</section>
+      <section class="sec"><h3><span class="sno">5</span>문항별 답과 점수</h3><p class="legend"><span class="chip good">높은 점수</span><span class="chip mid">중간</span><span class="chip bad">0점</span><span class="best">정답</span><span class="pick">고름</span></p>${E.questions.map((q, i) => qResultHtml(q, i, sc)).join("")}</section>
+      <section class="sec"><h3><span class="sno">6</span>종합 메모</h3><textarea data-memo rows="4" placeholder="면접관 종합 의견">${esc(state.memo)}</textarea><div class="print-memo">${esc(state.memo)}</div></section>
+      <p class="muted small">자동 점수는 규칙으로 낸 초안입니다. 최종 판단은 면접관이 합니다.</p>
     </div>`;
   }
 

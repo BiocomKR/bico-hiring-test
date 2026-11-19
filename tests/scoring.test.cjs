@@ -10,7 +10,8 @@ const q = (id, ans) => S.scoreQuestion(G.questions[id], ans).auto;
 
 test("함정형: 그럴듯한 보기는 1점 이하, 최선의 보기만 3점", opt, () => {
   assert.equal(q("q3", { option: "a" }), 1);
-  assert.equal(q("q3", { option: "e" }), 1);
+  assert.equal(q("q3", { option: "e" }), 0.5);
+  assert.equal(q("q5", { option: "e" }), 0);
   assert.equal(q("q3", { option: "d" }), 3);
   assert.equal(q("q5", { option: "d" }), 3);
 });
@@ -45,9 +46,35 @@ test("결함 찾기: 멀쩡한 항목을 고르면 감점", opt, () => {
   assert.equal(q("q7", { options: [...all, "p7", "p8"] }), 2);
 });
 
-test("정보 카드: 반전 카드 수가 점수, 최대 3", opt, () => {
+test("정보 카드: 카드별 점수 합, 최대 3", opt, () => {
   assert.equal(q("q1", { cards: ["c1", "c3", "c5"] }), 3);
-  assert.equal(q("q1", { cards: ["c4", "c8", "c2"] }), 0);
+  assert.equal(q("q1", { cards: ["c7", "c8", "c2"] }), 1.5);
+  assert.equal(q("q1", { cards: ["c4", "c8", "c2"] }), 0.5);
+});
+
+test("2개 고르기: 서로 모순되는 짝은 낮은 점수", opt, () => {
+  assert.equal(q("q4", { options: ["a", "e"] }), 1);
+  assert.equal(q("q6", { options: ["a", "b"] }), 1);
+  assert.equal(q("q9", { options: ["a", "b"] }), 1);
+});
+
+test("문항 하나뿐인 영역이 0점이어도 추천을 막지 않는다", opt, () => {
+  const ans = fullMarks();
+  ans.q10 = { option: "c" };
+  assert.equal(S.scoreAll(G, ans, {}).verdict, "면접 추천");
+});
+
+test("식별정보를 가리지 않고 보내면 그 답 하나로 위험 조합", opt, () => {
+  const sc = S.scoreAll(G, { q5: { option: "e" } }, {});
+  assert.ok(sc.combos.some((c) => c.id === "k3" && c.critical));
+});
+
+test("자기 답끼리 모순되면 조합 감점", opt, () => {
+  const ids = (ans) => S.scoreAll(G, ans, {}).combos.map((c) => c.id);
+  assert.ok(ids({ q2: { option: "c" } }).includes("k10"));
+  assert.ok(ids({ q3: { option: "e" }, q11: { options: ["b"] } }).includes("k11"));
+  assert.ok(ids({ q3: { option: "d" }, q9: { options: ["a"] } }).includes("k12"));
+  assert.ok(!ids({ q3: { option: "d" }, q9: { options: ["a", "b"] } }).includes("k12"));
 });
 
 test("면접관 점수가 자동 점수를 대신하고 판정에 반영", opt, () => {
