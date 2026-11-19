@@ -2,8 +2,8 @@
 (function (root) {
   function scoreCards(qg, ans) {
     const picked = ans.cards || [];
-    const high = picked.filter((c) => qg.high.includes(c)).length;
-    return { auto: Math.min(3, high) };
+    const sum = picked.reduce((s, c) => s + (qg.weights[c] || 0), 0);
+    return { auto: Math.min(3, sum) };
   }
 
   function scoreMulti(qg, ans) {
@@ -60,8 +60,10 @@
     return { per, dims, raw, penalty, total, max, combos, verdict: verdictOf(grading.verdict, total, dims, critical) };
   }
 
+  // 문항 하나뿐인 영역은 보기 하나로 갈리므로 하한에서 뺀다
   function verdictOf(v, total, dims, critical) {
-    const allFloor = dims.every((d) => d.got * 3 >= d.max);
+    const floor = v.floorDims || dims.map((d) => d.id);
+    const allFloor = dims.filter((d) => floor.includes(d.id)).every((d) => d.got * 3 >= d.max);
     if (total <= v.reject) return "탈락 후보";
     if (critical) return "보류 (위험한 답 조합)";
     if (total >= v.recommend && allFloor) return "면접 추천";
