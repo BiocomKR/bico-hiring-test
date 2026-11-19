@@ -90,24 +90,52 @@
     return true;
   }
 
-  function selectFollowups(grading, scored, answers, limit) {
+  function bandOf(grading, years) {
+    if (years === null || years === undefined || years === "" || !grading.levels) return null;
+    return grading.levels.bands.find((b) => years >= b.min && years <= b.max) || null;
+  }
+
+  // 연차는 판정에 넣지 않고 영역별 기대치 비교와 경고만 만든다
+  function levelReport(grading, scored, years) {
+    const band = bandOf(grading, years);
+    if (!band) return null;
+    const dims = Object.entries(band.expect).map(([id, expect]) => {
+      const d = scored.dims.find((x) => x.id === id);
+      const ratio = d.got / d.max;
+      const diff = ratio - expect;
+      const status = diff >= 0.05 ? "기대 이상" : diff >= -0.05 ? "기대 수준" : "기대 미달";
+      return { id, name: d.name, got: d.got, max: d.max, ratio, expect, status };
+    });
+    const warnings = [];
+    const critical = scored.combos.filter((c) => c.applied && c.critical);
+    if (band.id !== "junior" && critical.length) {
+      warnings.push(band.name + " 연차인데 위험 조합(" + critical.map((c) => c.title).join(", ") + ")에 걸렸습니다. 실무에서 사고로 이어질 판단이라 면접에서 반드시 확인하세요.");
+    }
+    return { band, years, dims, warnings };
+  }
+
+  function selectFollowups(grading, scored, answers, limit, years) {
+    const shown = scored.combos.filter((c) => c.applied).slice(0, 2);
+    const covered = new Set(shown.flatMap((c) => c.qs));
     const specific = grading.followups
-      .filter((f) => matches(f.when, scored.per, answers))
+      .filter((f) => matches(f.when, scored.per, answers) && !covered.has(f.when.q))
       .map((f, i) => ({ f, i, s: scored.per[f.when.q].final }))
       .sort((a, b) => a.s - b.s || a.i - b.i)
       .slice(0, limit || 4)
       .map((x) => x.f);
     const weakestDim = [...scored.dims].sort((a, b) => a.got / a.max - b.got / b.max)[0];
     const weak = grading.weakest[weakestDim.id];
-    const combos = scored.combos.filter((c) => c.applied).slice(0, 2)
+    const combos = shown
       .map((c) => ({ id: c.id, q: c.q, intent: c.intent, expect: c.expect, flag: c.flag, source: "답 조합: " + c.title }));
     const list = combos.concat(specific.map((f) => ({ ...f, source: "답 " + f.when.q.replace("q", "") + "번에 따라" })));
     if (weak) list.push({ id: "w-" + weakestDim.id, ...weak, source: "가장 약한 영역: " + weakestDim.name });
+    const band = bandOf(grading, years);
+    if (band) list.push({ id: "lv-" + band.id, ...band.followup, source: "연차 맞춤: " + band.name });
     grading.always.forEach((a) => list.push({ ...a, source: "공통" }));
     return list;
   }
 
-  const api = { scoreQuestion, scoreAll, selectFollowups, verdictOf };
+  const api = { scoreQuestion, scoreAll, selectFollowups, verdictOf, levelReport };
   root.Scoring = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(typeof window !== "undefined" ? window : globalThis);

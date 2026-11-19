@@ -80,6 +80,12 @@ button.link { border: 0; background: none; color: var(--acc); padding: 0 0 0 10p
 .combo.off { opacity: 0.55; }
 
 /* 결과 탭 */
+.level { margin-top: 16px; }
+.lv-head { display: flex; gap: 10px; align-items: center; font-size: 16px; }
+.lv-table { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 6px; }
+.lv-table th, .lv-table td { border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: left; }
+.lv-table th { font-size: 12.5px; color: var(--mut); }
+.lv-warn { margin: 10px 0 0; padding: 8px 12px; border-radius: 8px; background: var(--r-bg); color: var(--r); font-weight: 700; }
 .results { line-height: 1.7; }
 .rtitle { font-size: 26px; margin: 16px 0 6px; }
 .small { font-size: 12.5px; }
@@ -87,7 +93,7 @@ button.link { border: 0; background: none; color: var(--acc); padding: 0 0 0 10p
 .sec { margin: 28px 0; }
 .sec > h3 { display: flex; align-items: center; gap: 10px; font-size: 19px; margin: 0 0 12px; padding-bottom: 8px; border-bottom: 2px solid var(--line); }
 .sno { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--acc); color: var(--acc-fg); font-size: 14px; }
-.meta-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.meta-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
 .meta-grid > div { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; display: flex; flex-direction: column; }
 .meta-grid span { font-size: 12px; color: var(--mut); }
 .hero { display: flex; align-items: center; gap: 24px; border-radius: 14px; padding: 18px 22px; border: 2px solid; }

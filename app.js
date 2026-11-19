@@ -76,8 +76,11 @@
   /* ---------- 진행 ---------- */
   function start() {
     const name = $("#name").value.trim();
+    const raw = $("#years").value.trim();
+    const years = Number(raw);
     if (!name) return alert("이름을 입력해 주세요.");
-    Object.assign(state, { phase: "exam", name, startedAt: Date.now() });
+    if (raw === "" || !Number.isInteger(years) || years < 0 || years > 40) return alert("개발 연차를 0~40 사이 숫자로 입력해 주세요. 신입은 0입니다.");
+    Object.assign(state, { phase: "exam", name, years, startedAt: Date.now() });
     save();
     render();
   }
@@ -131,6 +134,7 @@
       <h2>${esc(E.title)}</h2>
       <ul class="rules">${E.rules.map((r) => "<li>" + esc(r) + "</li>").join("")}</ul>
       <label class="field">지원자 이름<input id="name" autocomplete="off" placeholder="이름을 입력하세요"></label>
+      <label class="field">개발 연차 (년)<input id="years" type="number" inputmode="numeric" min="0" max="40" step="1" placeholder="신입은 0"></label>
       <button class="primary" data-act="start">시험 시작</button>
     </section>`;
   }
@@ -298,6 +302,16 @@
       <span class="bar"><span class="fill ${tone(d.got, d.max)}" style="width:${Math.round((d.got / d.max) * 100)}%"></span></span>
       <span class="dscore"><b>${num(d.got)}</b> / ${d.max}</span></div>`).join("")}</div>`;
   }
+  function levelHtml(lv) {
+    if (!lv) return '<p class="muted small">연차 정보가 없어 연차 기대치 비교를 건너뜁니다.</p>';
+    const cls = { "기대 이상": "good", "기대 수준": "mid", "기대 미달": "bad" };
+    const rows = lv.dims.map((d) => `<tr><td><b>${esc(d.name)}</b></td><td>${num(d.got)} / ${d.max} (${Math.round(d.ratio * 100)}%)</td>
+      <td>${Math.round(d.expect * 100)}% 이상</td><td><span class="chip ${cls[d.status]}">${d.status}</span></td></tr>`).join("");
+    const warn = lv.warnings.map((w) => `<p class="lv-warn">${esc(w)}</p>`).join("");
+    return `<div class="level card"><div class="lv-head"><b>연차 기대치 비교</b><span class="chip mid">${esc(lv.band.name)} (${lv.years}년차)</span></div>
+      <p class="muted small">${esc(grading.levels.note)}</p>
+      <table class="lv-table"><tr><th>영역</th><th>지원자</th><th>이 연차 기대</th><th>비교</th></tr>${rows}</table>${warn}</div>`;
+  }
   function verdictHtml(sc) {
     const cls = sc.verdict === "면접 추천" ? "ok" : sc.verdict === "탈락 후보" ? "no" : "hold";
     return `<div class="hero ${cls}">
@@ -334,21 +348,22 @@
     return `<div class="meta-grid">
       <div><span>시험일</span><b>${fmt(state.startedAt)}</b></div><div><span>시작</span><b>${fmt(state.startedAt, true).slice(11)}</b></div>
       <div><span>제출</span><b>${esc(sub)}</b></div><div><span>소요</span><b>${mins}분</b></div>
-      <div><span>다른 창 이동</span>${away}</div></div>`;
+      <div><span>다른 창 이동</span>${away}</div><div><span>개발 연차</span><b>${state.years != null ? state.years + "년" : "-"}</b></div></div>`;
   }
   function resultsHtml() {
     if (!grading) return lockHtml();
     if (grading.version !== E.version) return `<div class="card warn-box">채점 파일(${esc(grading.version)})과 문제(${esc(E.version)})의 판이 다릅니다.</div>`;
     if (state.phase === "intro") return '<div class="card">아직 시작한 시험이 없습니다.</div>';
     const sc = Scoring.scoreAll(grading, state.answers, state.overrides, state.comboOff);
-    const fus = Scoring.selectFollowups(grading, sc, state.answers, 4);
+    const fus = Scoring.selectFollowups(grading, sc, state.answers, 4, state.years);
+    const lv = Scoring.levelReport(grading, sc, state.years);
     return `<div class="results">
       <div class="toolbar no-print"><button class="primary" data-act="pdf">PDF로 저장</button><button data-act="json">JSON 내보내기</button><button class="danger" data-act="reset">다음 지원자 준비(초기화)</button></div>
-      <h2 class="rtitle">${esc(state.name)} <span class="muted">평가 결과</span></h2>
+      <h2 class="rtitle">${esc(state.name)} <span class="muted">${state.years != null ? state.years + "년차, " : ""}평가 결과</span></h2>
       ${metaHtml()}
       <section class="sec"><h3><span class="sno">1</span>판정 초안</h3>${verdictHtml(sc)}${overviewHtml(sc)}</section>
       ${combosHtml(sc)}
-      <section class="sec"><h3><span class="sno">3</span>영역별 점수</h3>${dimsHtml(sc)}</section>
+      <section class="sec"><h3><span class="sno">3</span>영역별 점수</h3>${dimsHtml(sc)}${levelHtml(lv)}</section>
       <section class="sec"><h3><span class="sno">4</span>대면면접 추가질문</h3>${fus.map(followHtml).join("")}</section>
       <section class="sec"><h3><span class="sno">5</span>문항별 답과 점수</h3><p class="legend"><span class="chip good">높은 점수</span><span class="chip mid">중간</span><span class="chip bad">0점</span><span class="best">정답</span><span class="pick">고름</span></p>${E.questions.map((q, i) => qResultHtml(q, i, sc)).join("")}</section>
       <section class="sec"><h3><span class="sno">6</span>종합 메모</h3><textarea data-memo rows="4" placeholder="면접관 종합 의견">${esc(state.memo)}</textarea><div class="print-memo">${esc(state.memo)}</div></section>
