@@ -365,6 +365,27 @@
       <span class="bar"><span class="fill ${tone(d.got, d.max)}" style="width:${Math.round((d.got / d.max) * 100)}%"></span></span>
       <span class="dscore"><b>${num(d.got)}</b> / ${d.max}</span></div>`).join("")}</div>`;
   }
+  const qNo = (qid) => E.questions.findIndex((x) => x.id === qid) + 1;
+  const qLinks = (ids) => ids.length ? ids.map((q) => `<a href="#res-${q}">${qNo(q)}번 ${esc(qById(q).title)}</a>`).join(", ") : "없음";
+  function reliabilityHtml(sig) {
+    if (!sig.reliability.low) return "";
+    return `<p class="lv-warn">점수 신뢰도 낮음, 면접에서 확인: ${esc(sig.reliability.reasons.join(". "))}.</p>`;
+  }
+  function signalsHtml(sig) {
+    const trap = sig.traps.map((x) => `${qNo(x.qid)}번 ${x.ratio.toFixed(1)}배${x.missed ? " (빨리 답하고 틀림)" : ""}`).join(", ") || "없음";
+    const row = (name, cls, value, how) => `<tr><td><b>${name}</b></td><td><span class="chip ${cls}">${value}</span></td><td class="muted">${how}</td></tr>`;
+    const e = sig.edits;
+    return `<div class="level card"><div class="lv-head"><b>풀이 시간 신호</b><span class="chip mid">문항 중앙값 ${dur(sig.median)}</span></div>
+      <p class="muted small">${esc(grading.timeNote || "")}</p>
+      <table class="lv-table"><tr><th>신호</th><th>결과</th><th>읽는 법</th></tr>
+      ${row("성급한 오답", sig.hasty.length ? "bad" : "good", sig.hasty.length + "개", "빨리 답하고 1점 이하. 그럴듯한 답을 따져 보지 않은 문항: " + qLinks(sig.hasty))}
+      ${row("숙고한 정답", "good", sig.deliberate.length + "개", "오래 걸려 만점. 감점 대상이 아님: " + qLinks(sig.deliberate))}
+      ${row("함정에서 멈췄나", sig.traps.some((x) => x.missed) ? "bad" : "good", sig.traps.filter((x) => x.missed).length + "개 놓침", "함정형 문항에 쓴 시간(중앙값 대비): " + trap)}
+      ${row("수정의 질", e.down ? "bad" : e.up ? "good" : "mid", "오름 " + e.up + ", 내림 " + e.down, "고쳐서 점수가 내려간 문항: " + qLinks(e.regress))}
+      ${row("시간에 쫓김", sig.rushed ? "bad" : "good", sig.rushed ? "그렇다" : "아니다", "마지막 3문항이 급했거나 미답이면 뒤 문항 점수는 실력보다 낮을 수 있음. 미답: " + qLinks(sig.unanswered))}
+      ${row("찍기 의심", sig.quick.length >= 3 ? "bad" : "good", "10초 안 " + sig.quick.length + "개", "3개 이상이면 점수를 그대로 믿기 어려움: " + qLinks(sig.quick))}
+      </table></div>`;
+  }
   function levelHtml(lv) {
     if (!lv) return '<p class="muted small">연차 정보가 없어 연차 기대치 비교를 건너뜁니다.</p>';
     const cls = { "기대 이상": "good", "기대 수준": "mid", "기대 미달": "bad" };
@@ -418,16 +439,17 @@
     if (grading.version !== E.version) return `<div class="card warn-box">채점 파일(${esc(grading.version)})과 문제(${esc(E.version)})의 판이 다릅니다.</div>`;
     if (state.phase === "intro") return '<div class="card">아직 시작한 시험이 없습니다.</div>';
     const sc = Scoring.scoreAll(grading, state.answers, state.overrides, state.comboOff);
-    const fus = Scoring.selectFollowups(grading, sc, state.answers, 4, state.years);
+    const sig = Scoring.timeSignals(grading, sc, state.visits);
+    const fus = Scoring.selectFollowups(grading, sc, state.answers, 4, state.years, sig);
     const lv = Scoring.levelReport(grading, sc, state.years);
     sc.longest = longestQ();
     return `<div class="results">
       <div class="toolbar no-print"><button class="primary" data-act="pdf">PDF로 저장</button><button data-act="json">JSON 내보내기</button><button class="danger" data-act="reset">다음 지원자 준비(초기화)</button></div>
       <h2 class="rtitle">${esc(state.name)} <span class="muted">${state.years != null ? state.years + "년차, " : ""}평가 결과</span></h2>
       ${metaHtml()}
-      <section class="sec"><h3><span class="sno">1</span>판정 초안</h3>${verdictHtml(sc)}${overviewHtml(sc)}</section>
+      <section class="sec"><h3><span class="sno">1</span>판정 초안</h3>${verdictHtml(sc)}${reliabilityHtml(sig)}${overviewHtml(sc)}</section>
       ${combosHtml(sc)}
-      <section class="sec"><h3><span class="sno">3</span>영역별 점수</h3>${dimsHtml(sc)}${levelHtml(lv)}</section>
+      <section class="sec"><h3><span class="sno">3</span>영역별 점수</h3>${dimsHtml(sc)}${levelHtml(lv)}${signalsHtml(sig)}</section>
       <section class="sec"><h3><span class="sno">4</span>대면면접 추가질문</h3>${fus.map(followHtml).join("")}</section>
       <section class="sec"><h3><span class="sno">5</span>문항별 답과 점수</h3><p class="legend"><span class="chip good">높은 점수</span><span class="chip mid">중간</span><span class="chip bad">0점</span><span class="best">정답</span><span class="pick">고름</span></p>${E.questions.map((q, i) => qResultHtml(q, i, sc)).join("")}</section>
       <section class="sec"><h3><span class="sno">6</span>종합 메모</h3><textarea data-memo rows="4" placeholder="면접관 종합 의견">${esc(state.memo)}</textarea><div class="print-memo">${esc(state.memo)}</div></section>

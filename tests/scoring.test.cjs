@@ -238,6 +238,66 @@ test("정보 수집: 질문 다듬기와 성립 조건 확인", opt, () => {
   assert.equal(q("qc", { options: ["a", "e"] }), 1);
 });
 
+const sec = (n) => n * 1000;
+function visitsOf(ans, times) {
+  return Object.fromEntries(Object.keys(ans).map((q) => [q, [{ ms: sec(times[q] ?? 60), answer: ans[q] }]]));
+}
+
+test("성급한 오답: 본인 중앙값의 절반보다 빨리 답하고 1점 이하", opt, () => {
+  const ans = fullMarks();
+  ans.q5 = { option: "b" };
+  const sc = S.scoreAll(G, ans, {});
+  const sig = S.timeSignals(G, sc, visitsOf(ans, { q5: 20 }));
+  assert.deepEqual(sig.hasty, ["q5"]);
+  assert.ok(sig.traps.find((x) => x.qid === "q5").missed);
+  assert.equal(S.timeSignals(G, sc, visitsOf(ans, { q5: 70 })).hasty.length, 0);
+});
+
+test("숙고한 정답은 따로 세고 감점하지 않는다", opt, () => {
+  const ans = fullMarks();
+  const sc = S.scoreAll(G, ans, {});
+  const sig = S.timeSignals(G, sc, visitsOf(ans, { q3: 200 }));
+  assert.deepEqual(sig.deliberate, ["q3"]);
+  assert.equal(sc.total, 42);
+});
+
+test("수정의 질: 고쳐서 내려간 문항을 찾고 추가질문을 붙인다", opt, () => {
+  const ans = fullMarks();
+  ans.q6 = { options: ["b"] };
+  const v = visitsOf(ans, {});
+  v.q6 = [{ ms: sec(60), answer: { options: ["a", "d"] } }, { ms: sec(30), answer: ans.q6 }];
+  v.q9 = [{ ms: sec(40), answer: { options: ["a"] } }, { ms: sec(30), answer: ans.q9 }];
+  const sc = S.scoreAll(G, ans, {});
+  const sig = S.timeSignals(G, sc, v);
+  assert.equal(sig.edits.down, 1);
+  assert.equal(sig.edits.up, 1);
+  assert.deepEqual(sig.edits.regress, ["q6"]);
+  const f = S.selectFollowups(G, sc, ans, 4, 5, sig);
+  assert.ok(f.some((x) => x.id === "ed-q6"));
+});
+
+test("찍기 의심과 시간에 쫓김은 신뢰도를 낮춘다", opt, () => {
+  const ans = fullMarks();
+  const sc = S.scoreAll(G, ans, {});
+  assert.equal(S.timeSignals(G, sc, visitsOf(ans, {})).reliability.low, false);
+  assert.ok(S.timeSignals(G, sc, visitsOf(ans, { q3: 5, q4: 6, q5: 7 })).reliability.low);
+  const partial = fullMarks();
+  delete partial.q11;
+  const sc2 = S.scoreAll(G, partial, {});
+  const sig = S.timeSignals(G, sc2, visitsOf(partial, {}));
+  assert.ok(sig.rushed && sig.reliability.low);
+});
+
+test("성급한 오답 문항의 추가질문이 먼저 나온다", opt, () => {
+  const ans = fullMarks();
+  ans.q10 = { option: "c" };
+  ans.q5 = { option: "c" };
+  const sc = S.scoreAll(G, ans, {});
+  const sig = S.timeSignals(G, sc, visitsOf(ans, { q5: 10 }));
+  const f = S.selectFollowups(G, sc, ans, 1, null, sig).filter((x) => /^f\d/.test(x.id));
+  assert.equal(f[0].id, "f9");
+});
+
 function fullMarks() {
   return {
     q1: { cards: ["c1", "c3", "c5"] }, qa: { option: "b" }, q2: { slots: { who: "a", where: "b", what: "b" } },
