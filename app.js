@@ -83,7 +83,7 @@
   }
   function readForm(q) {
     const etc = ($("#etc-" + q.id) || {}).value || "";
-    if (q.type === "cards" || q.type === "multi") {
+    if (q.type !== "single") {
       const picked = [...document.querySelectorAll("input[name=opt-" + q.id + "]:checked")].map((i) => i.value);
       return q.type === "cards" ? { cards: picked, etc } : { options: picked, etc };
     }
@@ -95,8 +95,9 @@
       if (a.cards.length !== q.pick) return "카드를 " + q.pick + "장 골라 주세요.";
       return confirm("카드를 열면 바꿀 수 없어요. 이 3장을 열까요?") ? null : "";
     }
-    const empty = !a.etc.trim() && (q.type === "multi" ? !a.options.length : !a.option);
-    return empty ? "선택지를 고르거나 기타에 적어 주세요." : null;
+    if (q.type === "pick" && a.options.length > q.max) return "보기는 " + q.max + "개까지 고를 수 있어요.";
+    const empty = q.type === "single" ? !a.option : !a.options.length;
+    return empty ? "보기를 하나 이상 골라 주세요." : null;
   }
   function send(qid) {
     const q = qById(qid);
@@ -151,9 +152,10 @@
     const items = q.type === "cards" ? q.cards.map((c) => ({ id: c.id, text: c.label })) : q.options;
     const chosen = a.cards || a.options || (a.option ? [a.option] : []);
     const opts = items.map((o) => `<label class="opt"><input type="${isMulti ? "checkbox" : "radio"}" name="opt-${q.id}" value="${o.id}" ${chosen.includes(o.id) ? "checked" : ""}><span>${esc(o.text)}</span></label>`).join("");
-    const hint = q.type === "cards" ? q.pick + "장을 고르세요." : q.type === "multi" ? "해당하는 것을 모두 고르세요." : "하나를 고르세요.";
+    const hints = { cards: q.pick + "장을 고르세요.", multi: "해당하는 것을 모두 고르세요.", pick: (q.max || 2) + "개까지 고를 수 있어요.", single: "하나를 고르세요." };
+    const hint = hints[q.type];
     return `<div class="answer-form">
-      <p class="hint">${hint} 기타는 선택입니다.</p>${opts}
+      <p class="hint">${hint}</p>${opts}
       <label class="etc">기타<textarea id="etc-${q.id}" rows="3" placeholder="${esc(q.etcLabel)}">${esc(a.etc || "")}</textarea></label>
       <button class="primary" data-act="send" data-q="${q.id}">보내기</button>
     </div>`;
@@ -219,14 +221,15 @@
     const ids = a.cards || a.options || (a.option ? [a.option] : []);
     const g = grading.questions[q.id];
     const tag = (id) => {
-      if (g.kind === "single") return " (" + (g.options[id] || 0) + "점)";
+      if (g.kind === "single" || g.kind === "pick") return " (보기 " + (g.options[id] || 0) + "점)";
       if (g.kind === "multi") return g.flaws.includes(id) ? " (결함 맞힘)" : " (결함 아님, 감점)";
       return g.high.includes(id) ? " (핵심 카드)" : "";
     };
     const list = ids.map((id) => "<li>" + esc((items.find((o) => o.id === id) || {}).text) + "<b>" + tag(id) + "</b></li>").join("");
+    const pair = r.pair ? '<p class="muted">정답 짝을 골라 3점입니다.</p>' : "";
     const etc = a.etc && a.etc.trim()
-      ? `<div class="etc-box"><b>기타 (규칙 ${r.etcScore}점)</b><p>${esc(a.etc)}</p><p class="muted">걸린 핵심어: ${r.hits.length ? esc(r.hits.join(", ")) : "없음"}</p></div>` : "";
-    return "<ul>" + list + "</ul>" + etc;
+      ? `<div class="etc-box"><b>기타 (자동 점수 제외, 면접관 판단)</b><p>${esc(a.etc)}</p></div>` : "";
+    return "<ul>" + list + "</ul>" + pair + etc;
   }
   function qResultHtml(q, i, sc) {
     const g = grading.questions[q.id];
@@ -238,7 +241,7 @@
         <span class="score">자동 ${r.auto}점, 면접관 <select data-ov="${q.id}">${sel}</select><b class="print-only">최종 ${r.final}점</b></span></div>
       ${choiceHtml(q, state.answers[q.id], r)}
       ${state.edits[q.id] ? `<p class="muted">수정 ${state.edits[q.id]}회</p>` : ""}
-      <details><summary>모범 답과 채점 기준</summary><p>${esc(g.model)}</p>${g.why ? "<p>" + esc(g.why) + "</p>" : ""}</details>
+      <details><summary>모범 답과 채점 기준</summary><p>${esc(g.model)}</p>${g.why ? "<p>" + esc(g.why) + "</p>" : ""}${g.kind === "pick" && grading.pickRule ? "<p>" + esc(grading.pickRule) + "</p>" : ""}</details>
     </div>`;
   }
   function combosHtml(sc) {
