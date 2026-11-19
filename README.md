@@ -12,13 +12,13 @@
 | `scoring.js` | 채점, 답 조합 감점, 추가질문 선택 규칙 |
 | `app.js` | 시험 진행, 결과 탭, PDF와 JSON 내보내기 |
 
-채점 원본(`grading.json`, `cards.json`)은 이 저장소에 두지 않습니다.
+채점 원본(`grading.json`, `cards.json`)과 채점 시험(`tests/scoring.test.cjs`)은 정답이 들어 있어 이 저장소에 두지 않습니다. 이 저장소의 모든 파일은 GitHub Pages로 공개됩니다.
 
 ## 채점 원본을 고친 뒤
 
 ```sh
 GRADING_PASSWORD=<결과 탭 비밀번호> node tools/build-answer-key.mjs <채점 원본 폴더>
-GRADING_JSON=<채점 원본 폴더>/grading.json node --test tests/
+GRADING_JSON=<채점 원본 폴더>/grading.json node --test <채점 원본 폴더>/tests/scoring.test.cjs
 ```
 
 `exam.js`의 `version`과 `grading.json`의 `version`이 같아야 결과 탭이 열립니다.

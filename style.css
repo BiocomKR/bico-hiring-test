@@ -78,6 +78,7 @@ button.link { border: 0; background: none; color: var(--acc); padding: 0 0 0 10p
 
 .slot { border: 1px solid var(--line); border-radius: 10px; margin: 8px 0; padding: 4px 8px; }
 .slot legend { font-weight: 700; font-size: 13px; color: var(--acc); padding: 0 6px; }
+button.edit-btn { margin-left: 10px; padding: 2px 10px; font-size: 13px; font-weight: 400; border-color: var(--acc); color: var(--acc); background: transparent; }
 /* 결과 탭 */
 .ttime { font-size: 11px; color: var(--mut); font-variant-numeric: tabular-nums; }
 .note.time { color: var(--mut); }
