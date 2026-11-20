@@ -282,7 +282,7 @@
     const isMulti = q.type !== "single";
     const items = q.type === "cards" ? q.cards.map((c) => ({ id: c.id, text: c.label })) : q.options;
     const chosen = a.cards || a.options || (a.option ? [a.option] : []);
-    const opts = items.map((o) => `<label class="opt"><input type="${isMulti ? "checkbox" : "radio"}" name="opt-${q.id}" value="${o.id}" ${chosen.includes(o.id) ? "checked" : ""}><span>${esc(o.text)}</span></label>`).join("");
+    const opts = items.map((o) => `<label class="opt"><input type="${isMulti ? "checkbox" : "radio"}" name="opt-${q.id}" value="${o.id}" ${chosen.includes(o.id) ? "checked" : ""}><span>${esc(o.text)}${o.sub ? `<small class="opt-sub">${esc(o.sub)}</small>` : ""}</span></label>`).join("");
     const hints = { cards: q.pick + "장을 고르세요. 열면 바꿀 수 없어요.", multi: "해당하는 것을 모두 고르세요. 해당하지 않는 것을 고르면 감점돼요.",
       pick: (q.max || 2) + "개까지 고를 수 있어요. 맞지 않는 보기를 함께 고르면 감점돼요.", single: "하나를 고르세요." };
     const limit = q.type === "cards" ? q.pick : q.type === "pick" ? q.max || 2 : 0;
