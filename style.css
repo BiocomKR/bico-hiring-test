@@ -186,3 +186,4 @@ details summary { cursor: pointer; color: var(--acc); font-size: 13.5px; margin-
 }
 
 .warn-btn { margin-left: 10px; font-size: 13px; padding: 4px 10px; }
+.opt-sub { display: block; margin-top: 2px; color: var(--mut); font-size: 13px; }
