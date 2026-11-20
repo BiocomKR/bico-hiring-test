@@ -110,10 +110,12 @@
     const sel = document.querySelector("input[name=opt-" + q.id + "]:checked");
     return { option: sel ? sel.value : null };
   }
+  // 확인창에서 취소하면 저장 없이 그대로 둔다. 빈 문자열은 오류 없음으로 읽혀 저장돼 버렸다
+  const CANCELLED = Symbol("cancelled");
   function validate(q, a) {
     if (q.type === "cards") {
       if (a.cards.length !== q.pick) return "카드를 " + q.pick + "장 골라 주세요.";
-      return confirm("카드를 열면 바꿀 수 없어요. 이 3장을 열까요?") ? null : "";
+      return confirm("카드를 열면 바꿀 수 없어요. 이 3장을 열까요?") ? null : CANCELLED;
     }
     if (q.type === "slots") return Object.values(a.slots).some((v) => !v) ? "칸마다 하나씩 골라 주세요." : null;
     if (q.type === "pick" && a.options.length > q.max) return "보기는 " + q.max + "개까지 고를 수 있어요.";
@@ -154,7 +156,8 @@
     const q = qById(qid);
     const a = readForm(q);
     const err = validate(q, a);
-    if (err) return err && alert(err);
+    if (err === CANCELLED) return;
+    if (err) return alert(err);
     record(qid, a);
     const idx = E.questions.indexOf(q);
     state.revealed = Math.max(state.revealed, Math.min(idx + 2, E.questions.length));
