@@ -44,9 +44,28 @@
     const d = p.year + "-" + p.month + "-" + p.day;
     return withTime ? d + " " + p.hour + ":" + p.minute : d;
   }
-  function decodeFact(id) {
-    const b = atob(window.CARDS[id]);
-    return new TextDecoder().decode(Uint8Array.from(b, (c) => c.charCodeAt(0)));
+  // 카드 문구는 장별로 암호화해 두고, 연 뒤에만 풀어 메모리에 둔다. 개발자 도구에서 바로 읽히는 것을 막는 정도다
+  const CARD_PASS = "bico-hiring-card-v1";
+  const factText = {};
+  const unb64 = (x) => Uint8Array.from(atob(x), (c) => c.charCodeAt(0));
+  async function openCard(id) {
+    const c = window.CARDS[id];
+    const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(CARD_PASS + ":" + id), "PBKDF2", false, ["deriveKey"]);
+    const key = await crypto.subtle.deriveKey({ name: "PBKDF2", salt: unb64(c.s), iterations: 100000, hash: "SHA-256" },
+      base, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+    const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(c.i) }, key, unb64(c.d));
+    return new TextDecoder().decode(plain);
+  }
+  async function loadFacts() {
+    const ids = ((state.answers.q1 || {}).cards || []).filter((id) => !(id in factText));
+    if (!ids.length) return;
+    try {
+      for (const id of ids) factText[id] = await openCard(id);
+    } catch (e) {
+      console.error("정보 카드를 풀지 못함", e);
+      return;
+    }
+    render();
   }
   const qById = (id) => E.questions.find((q) => q.id === id);
 
@@ -148,11 +167,11 @@
     if (!qid) return;
     const q = qById(qid);
     const onScreen = document.querySelector(`[data-act=send][data-q=${qid}]`);
-    const a = onScreen ? readForm(q) : state.draft && state.draft.qid === qid ? state.draft.a : null;
+    const a = onScreen ? readForm(q) : (state.drafts || {})[qid] || null;
     if (a && quietValid(q, a)) record(qid, a);
   }
   function dropDraft(qid) {
-    if (state.draft && state.draft.qid === qid) state.draft = null;
+    if (state.drafts) delete state.drafts[qid];
   }
   function scrollToCurrent() {
     const chat = $("#chat");
@@ -181,6 +200,7 @@
     if (err) return alert(err);
     if (state.answers[qid] && JSON.stringify(state.answers[qid]) === JSON.stringify(a)) return closeEdit(qid);
     record(qid, a);
+    if (qid === "q1") loadFacts();
     const idx = E.questions.indexOf(q);
     state.revealed = Math.max(state.revealed, Math.min(idx + 2, E.questions.length));
     clockTo(currentQ());
@@ -229,7 +249,7 @@
   function factsHtml() {
     const opened = (state.answers.q1 && state.answers.q1.cards) || [];
     if (!opened.length) return '<p class="muted">아직 확인한 정보가 없습니다.</p>';
-    return opened.map((id) => '<div class="fact">' + esc(decodeFact(id)) + "</div>").join("");
+    return opened.map((id) => '<div class="fact">' + (id in factText ? esc(factText[id]) : "불러오는 중...") + "</div>").join("");
   }
   function problemHtml() {
     return `<div class="pane-scroll">
@@ -250,7 +270,7 @@
     return q.slots.map((s) => (s.options.find((o) => o.id === (a.slots || {})[s.id]) || {}).text || "(고르지 않음)");
   }
   function inputHtml(q) {
-    const a = state.draft && state.draft.qid === q.id ? state.draft.a : state.answers[q.id] || {};
+    const a = (state.drafts || {})[q.id] || state.answers[q.id] || {};
     if (q.type === "slots") return slotsInputHtml(q, a);
     const isMulti = q.type !== "single";
     const items = q.type === "cards" ? q.cards.map((c) => ({ id: c.id, text: c.label })) : q.options;
@@ -622,7 +642,7 @@
     if (sendBtn && state.phase === "exam") {
       // 고르기만 하고 보내지 않은 선택도 새로고침, 탭 이동, 시간 종료 때 잃지 않게 저장한다
       const dq = qById(sendBtn.dataset.q);
-      state.draft = { qid: dq.id, a: readForm(dq) };
+      (state.drafts = state.drafts || {})[dq.id] = readForm(dq);
       save();
     }
     if (e.target.dataset.combo !== undefined) {
@@ -660,5 +680,6 @@
   });
   setInterval(tick, 1000);
   render();
+  loadFacts();
   scrollToCurrent();
 })();
