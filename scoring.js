@@ -211,7 +211,8 @@
     const band = bandOf(grading, years);
     if (band) list.push({ id: "lv-" + band.id, ...band.followup, source: "연차 맞춤: " + band.name });
     const always = grading.always.slice().reverse();
-    always.slice(0, list.length < 6 ? 2 : 1).forEach((a) => list.push({ ...a, source: "공통" }));
+    const room = Math.max(0, 8 - list.length); // 10분 면접에 쓰도록 전체 8개를 넘기지 않는다
+    always.slice(0, Math.min(list.length < 6 ? 2 : 1, room)).forEach((a) => list.push({ ...a, source: "공통" }));
     return list.map((x, i) => ({ ...x, first: i < 3 }));
   }
 

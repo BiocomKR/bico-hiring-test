@@ -8,6 +8,8 @@
   state.comboOff = state.comboOff || {};
   state.visits = state.visits || {};
   state.pending = state.pending || {};
+  state.away = state.away || { count: 0, ms: 0, since: null };
+  state.away.since = null; // 새로고침 때 남은 숨김 시작 시각은 버린다. 새로고침은 창 이동이 아니다
   let grading = null;
   let tab = "exam";
 
@@ -42,9 +44,28 @@
     const d = p.year + "-" + p.month + "-" + p.day;
     return withTime ? d + " " + p.hour + ":" + p.minute : d;
   }
-  function decodeFact(id) {
-    const b = atob(window.CARDS[id]);
-    return new TextDecoder().decode(Uint8Array.from(b, (c) => c.charCodeAt(0)));
+  // 카드 문구는 장별로 암호화해 두고, 연 뒤에만 풀어 메모리에 둔다. 개발자 도구에서 바로 읽히는 것을 막는 정도다
+  const CARD_PASS = "bico-hiring-card-v1";
+  const factText = {};
+  const unb64 = (x) => Uint8Array.from(atob(x), (c) => c.charCodeAt(0));
+  async function openCard(id) {
+    const c = window.CARDS[id];
+    const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(CARD_PASS + ":" + id), "PBKDF2", false, ["deriveKey"]);
+    const key = await crypto.subtle.deriveKey({ name: "PBKDF2", salt: unb64(c.s), iterations: 100000, hash: "SHA-256" },
+      base, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+    const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(c.i) }, key, unb64(c.d));
+    return new TextDecoder().decode(plain);
+  }
+  async function loadFacts() {
+    const ids = ((state.answers.q1 || {}).cards || []).filter((id) => !(id in factText));
+    if (!ids.length) return;
+    try {
+      for (const id of ids) factText[id] = await openCard(id);
+    } catch (e) {
+      console.error("정보 카드를 풀지 못함", e);
+      return;
+    }
+    render();
   }
   const qById = (id) => E.questions.find((q) => q.id === id);
 
@@ -67,9 +88,12 @@
     if (state.phase !== "exam") return;
     if (document.hidden && !state.away.since) {
       state.away.since = Date.now();
-      state.away.count += 1;
     } else if (!document.hidden && state.away.since) {
-      state.away.ms += Date.now() - state.away.since;
+      const gone = Date.now() - state.away.since;
+      if (gone >= 1000) {
+        state.away.count += 1;
+        state.away.ms += gone;
+      }
       state.away.since = null;
     }
     save();
@@ -81,7 +105,7 @@
     const raw = $("#years").value.trim();
     const years = Number(raw);
     if (!name) return alert("이름을 입력해 주세요.");
-    if (raw === "" || !Number.isInteger(years) || years < 0 || years > 40) return alert("개발 연차를 0~40 사이 숫자로 입력해 주세요. 신입은 0입니다.");
+    if (!/^\d{1,2}$/.test(raw) || years > 40) return alert("개발 연차를 0~40 사이 정수로 입력해 주세요. 1년 미만은 0입니다.");
     Object.assign(state, { phase: "exam", name, years, startedAt: Date.now() });
     clockTo("q1");
     save();
@@ -110,10 +134,12 @@
     const sel = document.querySelector("input[name=opt-" + q.id + "]:checked");
     return { option: sel ? sel.value : null };
   }
+  // 확인창에서 취소하면 저장 없이 그대로 둔다. 빈 문자열은 오류 없음으로 읽혀 저장돼 버렸다
+  const CANCELLED = Symbol("cancelled");
   function validate(q, a) {
     if (q.type === "cards") {
       if (a.cards.length !== q.pick) return "카드를 " + q.pick + "장 골라 주세요.";
-      return confirm("카드를 열면 바꿀 수 없어요. 이 3장을 열까요?") ? null : "";
+      return confirm("카드를 열면 바꿀 수 없어요. 이 3장을 열까요?") ? null : CANCELLED;
     }
     if (q.type === "slots") return Object.values(a.slots).some((v) => !v) ? "칸마다 하나씩 골라 주세요." : null;
     if (q.type === "pick" && a.options.length > q.max) return "보기는 " + q.max + "개까지 고를 수 있어요.";
@@ -127,6 +153,7 @@
     return a.options.length > 0 && !(q.type === "pick" && a.options.length > q.max);
   }
   function record(qid, a) {
+    dropDraft(qid);
     if (state.answers[qid]) state.edits[qid] = (state.edits[qid] || 0) + 1;
     clockTo(null);
     (state.visits[qid] = state.visits[qid] || []).push({ ms: state.pending[qid] || 0, answer: a });
@@ -137,10 +164,14 @@
   // 시간 종료 때 고르기만 하고 안 보낸 답을 버리지 않는다
   function captureOpen() {
     const qid = currentQ();
-    if (!qid || !document.querySelector(`[data-act=send][data-q=${qid}]`)) return;
+    if (!qid) return;
     const q = qById(qid);
-    const a = readForm(q);
-    if (quietValid(q, a)) record(qid, a);
+    const onScreen = document.querySelector(`[data-act=send][data-q=${qid}]`);
+    const a = onScreen ? readForm(q) : (state.drafts || {})[qid] || null;
+    if (a && quietValid(q, a)) record(qid, a);
+  }
+  function dropDraft(qid) {
+    if (state.drafts) delete state.drafts[qid];
   }
   function scrollToCurrent() {
     const chat = $("#chat");
@@ -149,13 +180,27 @@
     const el = state.editing ? chat.querySelector(`[data-turn="${state.editing}"]`) : turns[turns.length - 1];
     if (el) chat.scrollTop = el.offsetTop - chat.offsetTop - 8;
   }
+  // 바꾼 것이 없으면 수정으로 기록하지 않고 닫는다. 열어 둔 시간도 버린다
+  function closeEdit(qid) {
+    dropDraft(qid);
+    state.editing = null;
+    clockTo(null);
+    state.pending[qid] = 0;
+    clockTo(currentQ());
+    save();
+    render();
+    scrollToCurrent();
+  }
   function send(qid) {
     if (state.editing && state.editing !== qid) return alert("고치던 답이 있어요. 먼저 「보내기」나 「취소」를 눌러 주세요.");
     const q = qById(qid);
     const a = readForm(q);
     const err = validate(q, a);
-    if (err) return err && alert(err);
+    if (err === CANCELLED) return;
+    if (err) return alert(err);
+    if (state.answers[qid] && JSON.stringify(state.answers[qid]) === JSON.stringify(a)) return closeEdit(qid);
     record(qid, a);
+    if (qid === "q1") loadFacts();
     const idx = E.questions.indexOf(q);
     state.revealed = Math.max(state.revealed, Math.min(idx + 2, E.questions.length));
     clockTo(currentQ());
@@ -186,11 +231,11 @@
       if (!k.startsWith("bico-exam-") || k === KEY) continue;
       try {
         const v = JSON.parse(localStorage.getItem(k));
-        if (v && v.phase && v.phase !== "intro") old.push(esc(v.name || "이름 없음") + " (" + esc(k.replace("bico-exam-", "")) + " 판)");
+        if (v && v.phase && v.phase !== "intro") old.push(k.replace("bico-exam-", ""));
       } catch (e) { console.error("이전 기록 읽기 실패", k, e); }
     }
     if (!old.length) return "";
-    return `<p class="lv-warn">이 기기에 이전 판으로 푼 기록이 남아 있습니다: ${old.join(", ")}. 새 판에서는 결과를 볼 수 없으니 담당 개발자에게 알려 주세요. 기록은 지워지지 않았습니다.</p>`;
+    return `<p class="lv-warn">이 기기에 이전 판으로 푼 기록이 ${old.length}건 남아 있습니다. 새 판에서는 결과를 볼 수 없으니 담당 개발자에게 알려 주세요. 기록은 지워지지 않았습니다.</p>`;
   }
   function introHtml() {
     return `<section class="intro card">${legacyHtml()}
@@ -204,7 +249,7 @@
   function factsHtml() {
     const opened = (state.answers.q1 && state.answers.q1.cards) || [];
     if (!opened.length) return '<p class="muted">아직 확인한 정보가 없습니다.</p>';
-    return opened.map((id) => '<div class="fact">' + esc(decodeFact(id)) + "</div>").join("");
+    return opened.map((id) => '<div class="fact">' + (id in factText ? esc(factText[id]) : "불러오는 중...") + "</div>").join("");
   }
   function problemHtml() {
     return `<div class="pane-scroll">
@@ -225,7 +270,7 @@
     return q.slots.map((s) => (s.options.find((o) => o.id === (a.slots || {})[s.id]) || {}).text || "(고르지 않음)");
   }
   function inputHtml(q) {
-    const a = state.answers[q.id] || {};
+    const a = (state.drafts || {})[q.id] || state.answers[q.id] || {};
     if (q.type === "slots") return slotsInputHtml(q, a);
     const isMulti = q.type !== "single";
     const items = q.type === "cards" ? q.cards.map((c) => ({ id: c.id, text: c.label })) : q.options;
@@ -348,7 +393,7 @@
       const rows = s.options.map((o) => {
         const isC = (a.slots || {})[s.id] === o.id;
         const v = g.slots[s.id][o.id] || 0;
-        return `<li class="opt-row ${isC ? "chosen" : ""}">${isC ? '<span class="pick">고름</span>' : '<span class="pick off"></span>'}<span class="otext">${esc(o.text)}</span>${v ? '<span class="best">정답</span>' : ""}<span class="chip ${v ? "good" : "bad"}">${num(v)}점</span></li>`;
+        return `<li class="opt-row ${isC ? "chosen" : ""}">${isC ? '<span class="pick">고름</span>' : '<span class="pick off"></span>'}<span class="otext">${esc(o.text)}</span>${v >= 1 ? '<span class="best">정답</span>' : ""}<span class="chip ${v >= 1 ? "good" : v ? "mid" : "bad"}">${num(v)}점</span></li>`;
       }).join("");
       return `<p class="note"><b>${esc(s.label)}</b></p><ul class="opt-list">${rows}</ul>`;
     }).join("");
@@ -369,7 +414,7 @@
     const edits = t.visits.slice(1);
     const detail = edits.length ? ` (첫 답 ${dur(t.visits[0].ms)}, 수정 ${edits.map((x) => dur(x.ms)).join(", ")})` : "";
     const hist = edits.length ? `<p class="note">답 변화: ${t.visits.map((x) => esc(shortAns(x.answer))).join(" → ")}</p>` : "";
-    const flag = qid === longest ? '<span class="chip mid">가장 오래 걸림</span>' : t.total < 10000 ? '<span class="chip mid">10초 안에 답함</span>' : "";
+    const flag = qid === longest ? '<span class="chip mid">가장 오래 걸림</span>' : t.total < 10000 && qid !== E.questions[0].id ? '<span class="chip mid">10초 안에 답함</span>' : "";
     return `<p class="note time">⏱ 풀이 시간 <b>${dur(t.total)}</b>${detail} ${flag}</p>${hist}`;
   }
   function longestQ() {
@@ -456,8 +501,9 @@
         <label class="no-print apply"><input type="checkbox" data-combo="${c.id}" ${c.applied ? "checked" : ""}> 감점 적용</label>
         <span class="print-only">${c.applied ? "적용" : "면접관이 적용 안 함"}</span>${c.merged ? '<span class="chip mid">같은 답에서 나온 조합이라 감점은 한 번만</span>' : ""}</div>
       <p class="ripple"><span class="lbl">파급효과</span>${esc(c.ripple)}</p></div>`).join("");
-    const nCrit = sc.combos.filter((c) => c.critical && c.applied).length;
-    const cap = `위험 조합 ${nCrit}건, 일반 조합 ${sc.combos.length - sc.combos.filter((c) => c.critical).length}건` + (grading.comboCap ? `, 감점 합계는 최대 ${grading.comboCap}점` : "");
+    const live = sc.combos.filter((c) => c.applied && !c.merged);
+    const nCrit = live.filter((c) => c.critical).length;
+    const cap = `위험 조합 ${nCrit}건, 일반 조합 ${live.length - nCrit}건` + (grading.comboCap ? `, 감점 합계는 최대 ${grading.comboCap}점` : "");
     return `<section class="sec"><h3><span class="sno">2</span>답 조합 감점 <span class="muted">(${cap})</span></h3>
       <p class="muted small">문항 하나씩은 그럴듯해도 함께 고르면 나중에 문제가 커지는 조합입니다. 위험 조합이 하나라도 적용되면 점수와 관계없이 추천하지 않습니다.</p>${cards}</section>`;
   }
@@ -505,8 +551,10 @@
   function baseName() {
     return "채용과제_평가결과_" + (state.name || "이름없음").replace(/[\\/:*?"<>|\s]+/g, "_") + "_" + fmt(state.startedAt || Date.now());
   }
+  // 저장 시점의 내용을 기억해 두고, 저장 뒤 점수나 메모가 바뀌면 초기화 때 다시 경고한다
+  const contentKey = () => JSON.stringify([state.answers, state.overrides, state.comboOff, state.fmemo, state.memo]);
   function toPdf() {
-    state.saved = true;
+    state.printing = true;
     save();
     const old = document.title;
     const closed = [...document.querySelectorAll("details:not([open])")];
@@ -524,16 +572,18 @@
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = baseName() + ".json";
-    state.saved = true;
+    state.savedKey = contentKey();
     save();
     a.click();
     URL.revokeObjectURL(a.href);
   }
   function reset() {
     const who = state.name || "지원자";
+    const edited = state.savedKey && state.savedKey !== contentKey();
     const msg = state.phase === "exam"
       ? who + " 님이 아직 시험 중입니다(미제출). 지우면 되돌릴 수 없습니다. 정말 지울까요?"
-      : state.saved ? who + " 님의 기록을 지웁니다. 되돌릴 수 없습니다."
+      : edited ? who + " 님의 점수나 메모를 저장한 뒤에 고쳤습니다. 고친 내용은 저장되지 않았습니다. 지우면 되돌릴 수 없습니다. 그래도 지울까요?"
+      : state.savedKey ? who + " 님의 기록을 지웁니다. 되돌릴 수 없습니다."
       : who + " 님의 결과를 아직 PDF나 JSON으로 저장하지 않았습니다. 지우면 되돌릴 수 없습니다. 그래도 지울까요?";
     if (!confirm(msg)) return;
     grading = null;
@@ -571,12 +621,7 @@
     }
     const act = t.dataset.act;
     if (act === "send") return send(t.dataset.q);
-    if (act === "cancel") {
-      state.editing = null;
-      clockTo(currentQ());
-      save();
-      return render();
-    }
+    if (act === "cancel") return closeEdit(state.editing);
     if (act === "edit") {
       if (state.editing && state.editing !== t.dataset.q) return alert("고치던 답이 있어요. 먼저 「보내기」나 「취소」를 눌러 주세요.");
       state.editing = t.dataset.q;
@@ -588,10 +633,17 @@
   });
   document.addEventListener("change", (e) => {
     const form = e.target.closest(".answer-form");
+    const sendBtn = form && form.querySelector("[data-act=send]");
     const lim = form ? Number(form.dataset.limit) : 0;
     if (lim && e.target.type === "checkbox" && form.querySelectorAll("input:checked").length > lim) {
       e.target.checked = false;
       return;
+    }
+    if (sendBtn && state.phase === "exam") {
+      // 고르기만 하고 보내지 않은 선택도 새로고침, 탭 이동, 시간 종료 때 잃지 않게 저장한다
+      const dq = qById(sendBtn.dataset.q);
+      (state.drafts = state.drafts || {})[dq.id] = readForm(dq);
+      save();
     }
     if (e.target.dataset.combo !== undefined) {
       state.comboOff[e.target.dataset.combo] = !e.target.checked;
@@ -619,7 +671,15 @@
     if (e.key === "Enter" && e.target.id === "name") start();
   });
   document.addEventListener("visibilitychange", onAway);
+  // 인쇄 창이 닫힌 뒤에 저장한 것으로 본다. 창에서 취소했는지는 브라우저가 알려 주지 않는다
+  window.addEventListener("afterprint", () => {
+    if (!state.printing) return;
+    state.printing = false;
+    state.savedKey = contentKey();
+    save();
+  });
   setInterval(tick, 1000);
   render();
+  loadFacts();
   scrollToCurrent();
 })();
