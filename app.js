@@ -393,7 +393,7 @@
       const rows = s.options.map((o) => {
         const isC = (a.slots || {})[s.id] === o.id;
         const v = g.slots[s.id][o.id] || 0;
-        return `<li class="opt-row ${isC ? "chosen" : ""}">${isC ? '<span class="pick">고름</span>' : '<span class="pick off"></span>'}<span class="otext">${esc(o.text)}</span>${v ? '<span class="best">정답</span>' : ""}<span class="chip ${v ? "good" : "bad"}">${num(v)}점</span></li>`;
+        return `<li class="opt-row ${isC ? "chosen" : ""}">${isC ? '<span class="pick">고름</span>' : '<span class="pick off"></span>'}<span class="otext">${esc(o.text)}</span>${v >= 1 ? '<span class="best">정답</span>' : ""}<span class="chip ${v >= 1 ? "good" : v ? "mid" : "bad"}">${num(v)}점</span></li>`;
       }).join("");
       return `<p class="note"><b>${esc(s.label)}</b></p><ul class="opt-list">${rows}</ul>`;
     }).join("");
