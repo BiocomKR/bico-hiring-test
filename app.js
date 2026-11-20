@@ -224,18 +224,25 @@
   }
 
   /* ---------- 지원자 화면 ---------- */
-  function legacyHtml() {
+  // 이전 판으로 푼 기록의 저장 키 목록
+  function oldRecordKeys() {
     const old = [];
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
       if (!k.startsWith("bico-exam-") || k === KEY) continue;
       try {
         const v = JSON.parse(localStorage.getItem(k));
-        if (v && v.phase && v.phase !== "intro") old.push(k.replace("bico-exam-", ""));
+        if (v && v.phase && v.phase !== "intro") old.push(k);
       } catch (e) { console.error("이전 기록 읽기 실패", k, e); }
     }
-    if (!old.length) return "";
-    return `<p class="lv-warn">이 기기에 이전 판으로 푼 기록이 ${old.length}건 남아 있습니다. 새 판에서는 결과를 볼 수 없으니 담당 개발자에게 알려 주세요. 기록은 지워지지 않았습니다.</p>`;
+    return old;
+  }
+  function legacyHtml() {
+    const n = oldRecordKeys().length;
+    if (!n) return "";
+    // 지원자도 보는 화면이라 바로 지우지 않고 결과 탭 비밀번호를 거치게 함
+    return `<div class="lv-warn">이 기기에 이전 판으로 푼 기록이 ${n}건 남아 있습니다. 새 판에서는 결과를 볼 수 없습니다. 감독관에게 알려 주세요.
+      <button class="danger warn-btn" data-tab="results">면접관 비밀번호로 지우기</button></div>`;
   }
   function introHtml() {
     return `<section class="intro card">${legacyHtml()}
@@ -526,7 +533,10 @@
   function resultsHtml() {
     if (!grading) return lockHtml();
     if (grading.version !== E.version) return `<div class="card warn-box">채점 파일(${esc(grading.version)})과 문제(${esc(E.version)})의 판이 다릅니다.</div>`;
-    if (state.phase === "intro") return '<div class="card">아직 시작한 시험이 없습니다.</div>';
+    if (state.phase === "intro") {
+      const n = oldRecordKeys().length;
+      return `<div class="card">아직 시작한 시험이 없습니다.${n ? `<p class="lv-warn">이 기기에 이전 판으로 푼 기록이 ${n}건 남아 있습니다.</p><div class="toolbar"><button class="danger" data-act="reset">이전 판 기록 지우기(초기화)</button></div>` : ""}</div>`;
+    }
     const sc = Scoring.scoreAll(grading, state.answers, state.overrides, state.comboOff);
     const sig = Scoring.timeSignals(grading, sc, state.visits);
     const fus = Scoring.selectFollowups(grading, sc, state.answers, 2, state.years, sig);
@@ -579,13 +589,17 @@
   }
   function reset() {
     const who = state.name || "지원자";
+    const oldKeys = oldRecordKeys();
+    const oldMsg = oldKeys.length ? " 이 기기에 남은 이전 판 기록 " + oldKeys.length + "건도 함께 지웁니다." : "";
     const edited = state.savedKey && state.savedKey !== contentKey();
-    const msg = state.phase === "exam"
+    const msg = state.phase === "intro" ? "이전 판 기록 " + oldKeys.length + "건을 지웁니다. 되돌릴 수 없습니다. 지울까요?"
+      : state.phase === "exam"
       ? who + " 님이 아직 시험 중입니다(미제출). 지우면 되돌릴 수 없습니다. 정말 지울까요?"
       : edited ? who + " 님의 점수나 메모를 저장한 뒤에 고쳤습니다. 고친 내용은 저장되지 않았습니다. 지우면 되돌릴 수 없습니다. 그래도 지울까요?"
       : state.savedKey ? who + " 님의 기록을 지웁니다. 되돌릴 수 없습니다."
       : who + " 님의 결과를 아직 PDF나 JSON으로 저장하지 않았습니다. 지우면 되돌릴 수 없습니다. 그래도 지울까요?";
-    if (!confirm(msg)) return;
+    if (!confirm(state.phase === "intro" ? msg : msg + oldMsg)) return;
+    oldKeys.forEach((k) => localStorage.removeItem(k));
     grading = null;
     state = fresh();
     save();
